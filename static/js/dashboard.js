@@ -12,7 +12,12 @@ const COLORS = {
   critical: '#b91c1c',
 };
 
-const PALETTE = [COLORS.accent, COLORS.accent2, COLORS.critical, '#7c5cd6', '#15803d'];
+// 欠点種類ごとの識別色(固定順・カラーユニバーサルデザイン検証済み)
+const PALETTE = ['#2a78d6', '#008300', '#e87ba4', '#eda100', '#1baf7a', '#eb6834', '#4a3aa7', '#e34948'];
+
+// X軸(日時)の表示フォーマット・目盛り密度(共通)
+const TIME_TICKFORMAT = '%-m/%-d %H:%M';
+const TIME_NTICKS = 20;
 
 let liveTimer = null;
 
@@ -61,6 +66,7 @@ async function loadDefectTypes() {
     container.innerHTML = defect_types.map((t, i) => `
       <label>
         <input type="checkbox" value="${t}" checked data-color="${PALETTE[i % PALETTE.length]}">
+        <span class="color-swatch" style="background:${PALETTE[i % PALETTE.length]}"></span>
         ${t}
       </label>
     `).join('');
@@ -88,7 +94,10 @@ function baseLayout(extra = {}) {
     plot_bgcolor: COLORS.bg,
     font: { color: COLORS.text, family: 'IBM Plex Sans JP, sans-serif', size: 11 },
     margin: { l: 50, r: 20, t: 10, b: 40 },
-    xaxis: { gridcolor: COLORS.grid, zerolinecolor: COLORS.grid, color: COLORS.muted },
+    xaxis: {
+      tickformat: TIME_TICKFORMAT, nticks: TIME_NTICKS,
+      gridcolor: COLORS.grid, zerolinecolor: COLORS.grid, color: COLORS.muted,
+    },
     yaxis: { gridcolor: COLORS.grid, zerolinecolor: COLORS.grid, color: COLORS.muted },
     showlegend: true,
     legend: { orientation: 'h', y: -0.25, font: { color: COLORS.muted, size: 10 } },
@@ -121,15 +130,7 @@ function buildDurationSegments(rows) {
   return { x, y, customdata };
 }
 
-async function loadDefectMap(start, end, types) {
-  const paramsDefects = new URLSearchParams({ start, end });
-  types.forEach((t) => paramsDefects.append('type', t));
-  const paramsProduct = new URLSearchParams({ start, end });
-
-  const [{ data: defects }, { data: productPos }] = await Promise.all([
-    fetchJSON(`/api/defects?${paramsDefects}`),
-    fetchJSON(`/api/product_position?${paramsProduct}`),
-  ]);
+function renderDefectMap(defects, productPos, types) {
   const colors = typeColorMap();
 
   const traces = types.map((t) => {
@@ -142,6 +143,9 @@ async function loadDefectMap(start, end, types) {
       mode: 'lines+markers',
       type: 'scatter',
       name: t,
+      // 欠点種類の凡例は左のチェックボックス(色スウォッチ付き)が兼ねるため、
+      // 種類数が増えてもグラフ側の凡例が横に溢れて見切れないようにここでは非表示にする
+      showlegend: false,
       line: { color: colors[t] || COLORS.accent, width: 6 },
       marker: { color: colors[t] || COLORS.accent, size: 5 },
       hovertemplate: `<b>${t}</b><br>発生時刻: %{x|%m/%d %H:%M:%S}<br>位置: %{y:.1f}<br>継続時間: %{customdata}<extra></extra>`,
@@ -155,34 +159,45 @@ async function loadDefectMap(start, end, types) {
   traces.push({
     x: productPos.map((p) => p.timestamp),
     y: productPos.map((p) => p.gross_end),
-    mode: 'lines', type: 'scatter', name: '製品位置(Gross)', legendgroup: 'gross',
+    mode: 'lines', type: 'scatter', name: 'Gross幅', legendgroup: 'gross',
     line: { color: GROSS_COLOR, width: 1 }, hoverinfo: 'skip',
   });
   traces.push({
     x: productPos.map((p) => p.timestamp),
     y: productPos.map((p) => p.gross_start),
-    mode: 'lines', type: 'scatter', name: '製品位置(Gross)', legendgroup: 'gross',
+    mode: 'lines', type: 'scatter', name: 'Gross幅', legendgroup: 'gross',
     line: { color: GROSS_COLOR, width: 1 }, hoverinfo: 'skip', showlegend: false,
   });
   traces.push({
     x: productPos.map((p) => p.timestamp),
     y: productPos.map((p) => p.net_end),
-    mode: 'lines', type: 'scatter', name: '製品位置(Net)', legendgroup: 'net',
+    mode: 'lines', type: 'scatter', name: 'Net幅', legendgroup: 'net',
     line: { color: NET_COLOR, width: 1.3, dash: 'dot' }, hoverinfo: 'skip',
   });
   traces.push({
     x: productPos.map((p) => p.timestamp),
     y: productPos.map((p) => p.net_start),
-    mode: 'lines', type: 'scatter', name: '製品位置(Net)', legendgroup: 'net',
+    mode: 'lines', type: 'scatter', name: 'Net幅', legendgroup: 'net',
     line: { color: NET_COLOR, width: 1.3, dash: 'dot' }, hoverinfo: 'skip', showlegend: false,
   });
 
   const posMax = window.POSITION_MAX || 210;
   Plotly.react('defectMap', traces, baseLayout({
+    margin: { l: 50, r: 20, t: 10, b: 60 },
+    xaxis: {
+      tickformat: TIME_TICKFORMAT, nticks: TIME_NTICKS,
+      rangeslider: { visible: true, thickness: 0.08, bgcolor: COLORS.grid },
+      gridcolor: COLORS.grid, zerolinecolor: COLORS.grid, color: COLORS.muted,
+    },
     yaxis: {
       title: '位置',
       range: [0, posMax],
       gridcolor: COLORS.grid, color: COLORS.muted,
+    },
+    // 横並び凡例だとCJKテキストの幅計算が崩れて見切れることがあるため縦配置・プロット内に置く
+    legend: {
+      orientation: 'v', x: 0.99, y: 0.99, xanchor: 'right', yanchor: 'top',
+      bgcolor: 'rgba(255,255,255,0.8)', font: { color: COLORS.muted, size: 10 },
     },
     annotations: [
       { xref: 'paper', yref: 'y', x: -0.065, y: posMax, xanchor: 'right',
@@ -193,24 +208,41 @@ async function loadDefectMap(start, end, types) {
   }), { responsive: true, displayModeBar: false });
 }
 
-async function loadTrend(start, end, types) {
-  const params = new URLSearchParams({ start, end });
-  types.forEach((t) => params.append('type', t));
-  const { data } = await fetchJSON(`/api/trend?${params}`);
+function buildHourlyTrendByType(defects) {
+  // 各欠点の発生時刻を1時間単位に切り捨ててバケット化し、種類ごとに発生分数(継続時間の合計)を集計する
+  const buckets = {}; // { hourISO: { defectType: occurrenceMinutes } }
 
-  const trace = {
-    x: data.map((d) => d.hour),
-    y: data.map((d) => d.occurrence_minutes),
-    customdata: data.map((d) => d.count),
+  defects.forEach((d) => {
+    const dt = new Date(d.timestamp);
+    dt.setMinutes(0, 0, 0);
+    const hourKey = dt.toISOString();
+    const typeMap = buckets[hourKey] || (buckets[hourKey] = {});
+    const minutes = d.duration_minutes || 0;
+    typeMap[d.defect_type] = (typeMap[d.defect_type] || 0) + minutes;
+  });
+
+  return { hours: Object.keys(buckets).sort(), buckets };
+}
+
+function renderTrend(defects, types) {
+  const { hours, buckets } = buildHourlyTrendByType(defects);
+  const colors = typeColorMap();
+
+  const traces = types.map((t) => ({
+    x: hours,
+    y: hours.map((h) => (buckets[h] && buckets[h][t]) || 0),
     type: 'bar',
-    marker: { color: COLORS.accent },
-    name: '発生分数',
-    hovertemplate: '%{x}<br>発生分数: %{y:.1f}分<br>件数: %{customdata}<extra></extra>',
-  };
-
-  Plotly.react('trendChart', [trace], baseLayout({
-    yaxis: { title: '発生分数 (分/時間)', gridcolor: COLORS.grid, color: COLORS.muted },
+    name: t,
+    // 欠点種類の凡例は左のチェックボックス(色スウォッチ付き)が兼ねるため非表示
     showlegend: false,
+    marker: { color: colors[t] || COLORS.accent },
+    hovertemplate: `<b>${t}</b><br>%{x|${TIME_TICKFORMAT}}<br>発生分数: %{y:.1f}分<extra></extra>`,
+  }));
+
+  Plotly.react('trendChart', traces, baseLayout({
+    barmode: 'stack',
+    showlegend: false,
+    yaxis: { title: '発生分数 (分/時間)', gridcolor: COLORS.grid, color: COLORS.muted },
   }), { responsive: true, displayModeBar: false });
 }
 
@@ -256,11 +288,19 @@ async function applyFilter() {
   btn.disabled = true;
   btn.textContent = '読み込み中…';
   try {
-    await Promise.all([
-      loadDefectMap(start, end, types),
-      loadTrend(start, end, types),
-      loadPhotos(start, end),
+    const paramsDefects = new URLSearchParams({ start, end });
+    types.forEach((t) => paramsDefects.append('type', t));
+    const paramsProduct = new URLSearchParams({ start, end });
+
+    const [{ data: defects }, { data: productPos }] = await Promise.all([
+      fetchJSON(`/api/defects?${paramsDefects}`),
+      fetchJSON(`/api/product_position?${paramsProduct}`),
     ]);
+
+    renderDefectMap(defects, productPos, types);
+    renderTrend(defects, types);
+    await loadPhotos(start, end);
+
     el('lastUpdated').textContent = `最終更新 ${new Date().toLocaleTimeString('ja-JP')}`;
   } catch (e) {
     showError(e.message);

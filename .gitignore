@@ -11,3 +11,6 @@ venv/
 
 # キャッシュ(Excel写真抽出用)
 cache/
+
+# Windows/WSL由来の不要ファイル
+*:Zone.Identifier
