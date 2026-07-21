@@ -194,11 +194,7 @@ function renderDefectMap(defects, productPos, types) {
       range: [0, posMax],
       gridcolor: COLORS.grid, color: COLORS.muted,
     },
-    // 横並び凡例だとCJKテキストの幅計算が崩れて見切れることがあるため縦配置・プロット内に置く
-    legend: {
-      orientation: 'v', x: 0.99, y: 0.99, xanchor: 'right', yanchor: 'top',
-      bgcolor: 'rgba(255,255,255,0.8)', font: { color: COLORS.muted, size: 10 },
-    },
+    showlegend: false,
     annotations: [
       { xref: 'paper', yref: 'y', x: -0.065, y: posMax, xanchor: 'right',
         text: '左', showarrow: false, font: { color: COLORS.muted, size: 11 } },
@@ -224,6 +220,10 @@ function buildHourlyTrendByType(defects) {
   return { hours: Object.keys(buckets).sort(), buckets };
 }
 
+// Plotlyは棒の幅をデータ点同士の間隔から自動推定するため、表示期間が短く
+// バーの本数が少ないと「1時間」から幅がズレて見える。明示的に1時間分で固定する。
+const ONE_HOUR_MS = 60 * 60 * 1000;
+
 function renderTrend(defects, types) {
   const { hours, buckets } = buildHourlyTrendByType(defects);
   const colors = typeColorMap();
@@ -232,6 +232,7 @@ function renderTrend(defects, types) {
     x: hours,
     y: hours.map((h) => (buckets[h] && buckets[h][t]) || 0),
     type: 'bar',
+    width: ONE_HOUR_MS,
     name: t,
     // 欠点種類の凡例は左のチェックボックス(色スウォッチ付き)が兼ねるため非表示
     showlegend: false,
