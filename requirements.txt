@@ -1,0 +1,10 @@
+Flask>=3.0
+pymssql>=2.3
+pandas>=2.0
+boxsdk[jwt]>=3.9,<10  # 10.0以降はパッケージ名はそのままに実体が別物のSDK(box_sdk_gen)に切り替わり、from boxsdk import JWTAuth, Client が壊れるため
+python-dateutil>=2.8
+openpyxl>=3.1
+Pillow>=10.0
+
+# テスト用
+pytest>=8.0

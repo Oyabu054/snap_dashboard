@@ -1,0 +1,84 @@
+; ===================================================================
+; 接続設定テンプレート
+; ===================================================================
+; このファイルをコピーして "config.txt" を作成し、実際の値に書き換えてください。
+; config.txt 自体は .gitignore 対象なのでGitにはコミットされません。
+;
+;   cp config.txt.example config.txt   (Windowsの場合は copy コマンド)
+;
+; PI AFへの接続方式について:
+;   PIconnect(AF SDK)はWindows統合認証のみで技術アカウントが使えないため、
+;   pymssqlでSQL Serverに接続し、リンクサーバー経由のOPENQUERYでPIの
+;   内部テーブル(Master.Element.*)を直接SQLで取得する方式を採用しています。
+;   sql_user / sql_password には技術アカウントの認証情報を設定してください。
+; ===================================================================
+
+[pi]
+; SQL Server接続先(PIのリンクサーバーが設定されているSQL Server)
+sql_host = YOUR_SQL_SERVER_HOST
+sql_user = YOUR_SQL_USER
+sql_password = YOUR_SQL_PASSWORD
+sql_database = YOUR_SQL_DATABASE
+
+; OPENQUERY先のリンクサーバー名(PI用にSQL Server側で設定されているもの)
+sql_linked_server = YOUR_LINKED_SERVER_NAME
+
+; 欠点データ・製品位置データが属するAFフォルダ階層(eh.Path)。両要素で共通の前提
+af_hierarchy_path = YourFolder\SubFolder\
+
+; 欠点データを持つAF要素名(a.Element)
+af_element_name = DefectDetection
+
+; 欠点データの4属性(実際のAF属性名に置き換える)
+attr_start_time = StartTime
+attr_duration = Duration
+attr_position = Position
+attr_defect_type = DefectType
+
+; ATTR_DURATIONの値の単位: seconds | minutes | milliseconds
+duration_unit = seconds
+
+; 位置スケール(0〜この値。値が大きいほど左側)
+position_max = 210
+
+; 複数属性のタイムスタンプが完全一致しない場合の許容誤差
+timestamp_match_tolerance = 2s
+
+; 欠点種類ドロップダウン用に遡って取得する日数
+defect_type_lookback_days = 90
+
+; 製品位置データ(Gross幅・Net幅)。欠点データと別要素名なら af_product_element_name を指定
+; (AFフォルダ階層は af_hierarchy_path を共有)
+af_product_element_name =
+attr_product_gross_start = GrossStartPosition
+attr_product_gross_end = GrossEndPosition
+attr_product_net_start = NetStartPosition
+attr_product_net_end = NetEndPosition
+
+[box]
+; Box Developer Consoleでダウンロードした認証設定ファイルのパス
+jwt_config_file = box_jwt_config.json
+
+; 写真が格納されているBoxフォルダのID(フォルダURL末尾の数字)
+folder_id = YOUR_BOX_FOLDER_ID
+
+; Excel埋め込み写真方式で、Excelファイルが格納されているBoxフォルダのID
+; (画像直置き用フォルダと異なる場合に指定。空欄ならfolder_idと同じ扱い)
+excel_folder_id =
+
+; ファイル名/シート名から日時を抽出する正規表現・フォーマット(画像直置き方式用)
+; 例: "20260719_101533_line1.jpg" -> "20260719_101533" を抽出
+filename_datetime_pattern = (\d{8}_\d{6})
+filename_datetime_format = %Y%m%d_%H%M%S
+
+; Excel埋め込み写真方式で、Excelファイル名からライン名/日付を抽出する正規表現
+; 名前付きグループ line_name / year / month / day が必須(timeは任意、未使用)
+; 例: "(L1)2026.03.10_0852_A品種_T5.xlsx" -> line_name=L1, year=2026, month=03, day=10
+excel_filename_pattern = [\(（](?P<line_name>[^\)）]*)[\)）](?P<year>\d{4})\.(?P<month>\d{2})\.(?P<day>\d{2})_(?P<time>\d{4})_
+
+; Excel埋め込み写真のキャッシュ保存先(index.json・抽出画像を格納するディレクトリ)
+excel_photo_cache_dir = cache
+
+[flask]
+host = 127.0.0.1
+port = 5000

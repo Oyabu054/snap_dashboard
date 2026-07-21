@@ -1,0 +1,13 @@
+# 機密情報・環境固有設定(Gitにコミットしない)
+config.txt
+box_jwt_config.json
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+.pytest_cache/
+
+# キャッシュ(Excel写真抽出用)
+cache/
