@@ -245,32 +245,6 @@ function renderTrend(defects, types) {
   }), { responsive: true, displayModeBar: false });
 }
 
-async function loadPhotos(start, end) {
-  const container = el('photoList');
-  const params = new URLSearchParams({ start, end });
-  try {
-    const { data } = await fetchJSON(`/api/photos?${params}`);
-    if (!data.length) {
-      container.innerHTML = '<span class="muted">該当する写真がありません</span>';
-      return;
-    }
-    container.innerHTML = data.map((p) => `
-      <div class="photo-card">
-        <img src="${p.thumbnail_url}" alt="${p.name}" loading="lazy"
-             onerror="this.style.visibility='hidden'">
-        <div class="photo-card__meta">
-          <div class="photo-card__time">${p.timestamp.replace('T', ' ').slice(0, 16)}</div>
-          <div class="photo-card__name">${p.name}</div>
-        </div>
-      </div>
-    `).join('');
-  } catch (e) {
-    container.innerHTML = '<span class="muted">写真の取得に失敗しました</span>';
-    // Box側のエラーはグラフ表示を妨げないよう、ここでは致命的エラーにしない
-    console.error(e);
-  }
-}
-
 // =========================================================
 // 期間絞り込みスクロールバー(左パネル)
 // 取得済みデータの再取得はせず、両チャートのx軸表示範囲だけをズームする
@@ -365,7 +339,6 @@ async function applyFilter() {
     renderDefectMap(defects, productPos, types);
     renderTrend(defects, types);
     resetPeriodSlider(new Date(start).getTime(), new Date(end).getTime());
-    await loadPhotos(start, end);
 
     el('lastUpdated').textContent = `最終更新 ${new Date().toLocaleTimeString('ja-JP')}`;
   } catch (e) {
