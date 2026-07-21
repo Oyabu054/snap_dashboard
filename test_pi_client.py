@@ -213,6 +213,45 @@ def test_get_defects_returns_empty_dataframe_when_no_data(monkeypatch):
     assert list(result.columns) == ["timestamp", "position", "duration_minutes", "defect_type"]
 
 
+def test_get_defects_excludes_non_defect_types_even_without_filter(monkeypatch):
+    # NET切れ/RIP/その他/不明は欠点データではないため、defect_types指定の有無によらず除外する
+    attrs = ["Position", "DefectType"] * 5
+    timestamps = []
+    values = []
+    for i, dtype in enumerate(["Bubble", "NET切れ", "RIP", "その他", "不明"]):
+        ts = f"2026-03-10 {8 + i:02d}:00:00"
+        timestamps += [ts, ts]
+        values += [str(10.0 * (i + 1)), dtype]
+    df_raw = pd.DataFrame({
+        "Attribute": attrs,
+        "TimeStamp": pd.to_datetime(timestamps),
+        "Value": values,
+    })
+    monkeypatch.setattr(pi_client, "_fetch_element_raw", lambda element, start, end: df_raw)
+
+    result = pi_client.get_defects("2026-03-10T00:00:00", "2026-03-11T00:00:00")
+
+    assert list(result["defect_type"]) == ["Bubble"]
+
+
+def test_get_defects_excludes_non_defect_types_even_if_explicitly_requested(monkeypatch):
+    df_raw = pd.DataFrame({
+        "Attribute": ["Position", "DefectType", "Position", "DefectType"],
+        "TimeStamp": pd.to_datetime([
+            "2026-03-10 08:00:00", "2026-03-10 08:00:00",
+            "2026-03-10 09:00:00", "2026-03-10 09:00:00",
+        ]),
+        "Value": ["10.0", "Bubble", "20.0", "RIP"],
+    })
+    monkeypatch.setattr(pi_client, "_fetch_element_raw", lambda element, start, end: df_raw)
+
+    result = pi_client.get_defects(
+        "2026-03-10T00:00:00", "2026-03-11T00:00:00", defect_types=["Bubble", "RIP"]
+    )
+
+    assert list(result["defect_type"]) == ["Bubble"]
+
+
 # ===================== get_available_defect_types =====================
 
 def test_get_available_defect_types_returns_sorted_unique(monkeypatch):
@@ -242,6 +281,19 @@ def test_get_available_defect_types_returns_empty_list_when_no_data(monkeypatch)
     )
 
     assert pi_client.get_available_defect_types() == []
+
+
+def test_get_available_defect_types_excludes_non_defect_types(monkeypatch):
+    df_raw = pd.DataFrame({
+        "Attribute": ["DefectType"] * 5,
+        "TimeStamp": pd.to_datetime(["2026-01-01"] * 5),
+        "Value": ["Bubble", "NET切れ", "RIP", "その他", "不明"],
+    })
+    monkeypatch.setattr(pi_client, "_fetch_element_raw", lambda element, start, end: df_raw)
+
+    result = pi_client.get_available_defect_types()
+
+    assert result == ["Bubble"]
 
 
 # ===================== get_product_position =====================

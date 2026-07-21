@@ -80,6 +80,15 @@ function getSelectedTypes() {
   return Array.from(document.querySelectorAll('#defectTypeList input:checked')).map((c) => c.value);
 }
 
+function setupTypeSelectButtons() {
+  el('selectAllTypes').addEventListener('click', () => {
+    document.querySelectorAll('#defectTypeList input[type="checkbox"]').forEach((c) => { c.checked = true; });
+  });
+  el('deselectAllTypes').addEventListener('click', () => {
+    document.querySelectorAll('#defectTypeList input[type="checkbox"]').forEach((c) => { c.checked = false; });
+  });
+}
+
 function typeColorMap() {
   const map = {};
   document.querySelectorAll('#defectTypeList input').forEach((c) => {
@@ -130,7 +139,7 @@ function buildDurationSegments(rows) {
   return { x, y, customdata };
 }
 
-function renderDefectMap(defects, productPos, types) {
+function renderDefectMap(defects, productPos, types, range) {
   const colors = typeColorMap();
 
   const traces = types.map((t) => {
@@ -184,7 +193,7 @@ function renderDefectMap(defects, productPos, types) {
   const posMax = window.POSITION_MAX || 210;
   Plotly.react('defectMap', traces, baseLayout({
     xaxis: {
-      tickformat: TIME_TICKFORMAT, nticks: TIME_NTICKS,
+      tickformat: TIME_TICKFORMAT, nticks: TIME_NTICKS, range,
       gridcolor: COLORS.grid, zerolinecolor: COLORS.grid, color: COLORS.muted,
     },
     yaxis: {
@@ -222,7 +231,7 @@ function buildHourlyTrendByType(defects) {
 // バーの本数が少ないと「1時間」から幅がズレて見える。明示的に1時間分で固定する。
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
-function renderTrend(defects, types) {
+function renderTrend(defects, types, range) {
   const { hours, buckets } = buildHourlyTrendByType(defects);
   const colors = typeColorMap();
 
@@ -241,6 +250,11 @@ function renderTrend(defects, types) {
   Plotly.react('trendChart', traces, baseLayout({
     barmode: 'stack',
     showlegend: false,
+    // 上段の欠点マップとX軸(時間)の目盛り位置がずれないよう、同じ表示範囲を明示指定する
+    xaxis: {
+      tickformat: TIME_TICKFORMAT, nticks: TIME_NTICKS, range,
+      gridcolor: COLORS.grid, zerolinecolor: COLORS.grid, color: COLORS.muted,
+    },
     yaxis: { title: '発生分数 (分/時間)', gridcolor: COLORS.grid, color: COLORS.muted },
   }), { responsive: true, displayModeBar: false });
 }
@@ -336,8 +350,9 @@ async function applyFilter() {
       fetchJSON(`/api/product_position?${paramsProduct}`),
     ]);
 
-    renderDefectMap(defects, productPos, types);
-    renderTrend(defects, types);
+    const range = [start, end];
+    renderDefectMap(defects, productPos, types, range);
+    renderTrend(defects, types, range);
     resetPeriodSlider(new Date(start).getTime(), new Date(end).getTime());
 
     el('lastUpdated').textContent = `最終更新 ${new Date().toLocaleTimeString('ja-JP')}`;
@@ -379,6 +394,7 @@ async function init() {
   setupLiveToggle();
   setupQuickRange();
   setupPeriodSlider();
+  setupTypeSelectButtons();
   applyFilter();
 }
 

@@ -48,6 +48,10 @@ ATTR_PRODUCT_GROSS_END = "グロス終了位置"
 ATTR_PRODUCT_NET_START = "ネット開始位置"
 ATTR_PRODUCT_NET_END = "ネット終了位置"
 
+# ATTR_DEFECT_TYPEの値のうち、実際の欠点(スナップ)ではないため常に除外する種類
+# (ユーザー指示、2026-07-21)。defect_typesフィルターの指定有無によらず除外する。
+EXCLUDED_DEFECT_TYPES = {"NET切れ", "RIP", "その他", "不明"}
+
 
 def _connect():
     return pymssql.connect(
@@ -195,6 +199,7 @@ def get_defects(start, end, defect_types=None) -> pd.DataFrame:
     df["timestamp"] = parsed_start.fillna(df["pi_timestamp"])
 
     df = df[["timestamp", "position", "duration_minutes", "defect_type"]]
+    df = df[~df["defect_type"].isin(EXCLUDED_DEFECT_TYPES)]
 
     if defect_types:
         df = df[df["defect_type"].isin(defect_types)]
@@ -235,7 +240,7 @@ def get_available_defect_types():
     recent = _attribute_series(df_raw, ATTR_DEFECT_TYPE, numeric=False)
     if recent.empty:
         return []
-    return sorted(set(recent.values.tolist()))
+    return sorted(set(recent.values.tolist()) - EXCLUDED_DEFECT_TYPES)
 
 
 def get_product_position(start, end) -> pd.DataFrame:
