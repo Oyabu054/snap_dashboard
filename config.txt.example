@@ -64,5 +64,9 @@ excel_filename_pattern = [\(（](?P<line_name>[^\)）]*)[\)）](?P<year>\d{4})\.
 excel_photo_cache_dir = cache
 
 [flask]
+; 127.0.0.1 = このPCからのみ閲覧可能(既定)
+; 0.0.0.0   = 同一LAN上の他PCからも http://このPCのIPアドレス:port/ で閲覧可能
+;             (ホストPC側でWindowsファイアウォールのポート開放が別途必要。
+;             手順はREADME.mdの「複数PCから閲覧する」章を参照)
 host = 127.0.0.1
 port = 5000

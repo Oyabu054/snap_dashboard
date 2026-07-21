@@ -2,16 +2,21 @@
 
 ## 現在地点(2026-07-21時点、次のチャットで最初に読む部分)
 
-- **Git**: `master`ブランチ、最新コミット`b596215`(GitHub `origin/master`とも同期済み、
-  作業ツリーもクリーン)。リポジトリ: `git@github.com:Oyabu054/snap_dashboard.git`
-- **直前の状態**: PyInstallerでのexe化(`SnapMonitor.spec`・起動時ブラウザ自動オープン・
-  `config.py`の`BASE_DIR`対応)を実装したが、ユーザーの実機で原因不明のPI接続エラーが
-  再発したため、**`git revert`で丸ごと取り消し済み**(詳細は下記「exe化を試行 → revert」)
-- **次にやるべきこと**: ユーザーが実機のタスクマネージャーで`SnapMonitor.exe`/`python.exe`の
-  重複起動がないか確認する予定だった(結果待ち)。そこから再開し、クリーンな状態でPI接続を
-  再確認 → 問題なければexe化コードを再適用、という流れ
-- **アプリ自体の機能**: PI接続・欠点マップ・トレンド・製品位置表示は実機で動作確認済み
-  (exe化以外の全機能)。Box連携は情シス却下によりUI非接続のまま保留中
+- **Git**: `master`ブランチ、最新コミット`b995f09`(GitHub `origin/master`への未push分あり。
+  作業ツリーはクリーン)。リポジトリ: `git@github.com:Oyabu054/snap_dashboard.git`
+- **直前の状態**: PyInstallerでのexe化を実装(`8e2283e`)→実機で原因不明のPI接続エラーが
+  再発し`git revert`で一旦取り消し(`b596215`)→**ユーザーがPC再起動後にクリーンな状態で
+  再テストしたところ成功**。ポート5000を握った古いプロセスが原因だった可能性が高いと判断し、
+  `git revert b596215`でexe化コードを再度復元済み(`b995f09`)。併せて`config.py`の
+  `BASE_DIR`解決ロジックに単体テストを追加(`test_config.py`)、複数PC(最大5台程度)からの
+  閲覧手順をREADME/config.txt.exampleに追記(コード変更不要、`config.txt`の
+  `[flask] host`を`0.0.0.0`にするだけで対応可能)。詳細は下記「exe化を試行 → revert → 再適用」
+- **次にやるべきこと**: (1) `git push`が未実施(要ユーザー確認)。(2) ユーザーの実機で
+  `pyinstaller SnapMonitor.spec` → `dist/SnapMonitor.exe`起動 → ブラウザ自動オープン →
+  PI接続成功、を再確認。(3) 複数PCアクセスを使うか判断があれば、ホストPCの`config.txt`の
+  `host`を`0.0.0.0`に変更しファイアウォール設定(README「8. 複数PCから閲覧する」参照)
+- **アプリ自体の機能**: PI接続・欠点マップ・トレンド・製品位置表示は実機で動作確認済み。
+  Box連携は情シス却下によりUI非接続のまま保留中
 - ユーザー・私(Claude Code)ともにこの1セッションで多数のやり取りを経ているため、
   過去の判断理由(なぜこうしたか)は本ドキュメント内に極力残してある。迷ったら該当セクションを参照
 
@@ -129,8 +134,11 @@ snap_dashboard/
 ├── excel_photos.py     # Excel埋め込み写真抽出。parse_filename/get_photos/sync_cache実装済み
 ├── test_pi_client.py   # pi_client.pyのテスト(pymssqlをモック)
 ├── test_excel_photos.py # excel_photos.pyのテスト
+├── test_app.py         # app.py(Flaskルート)のテスト
+├── test_config.py      # config.pyのBASE_DIR解決ロジックのテスト(sys.frozenをモック)
+├── SnapMonitor.spec    # PyInstaller単一exeビルド設定(exe化。README「7.」参照)
 ├── requirements.txt
-├── README.md           # 人間向けセットアップ手順(テスト実行方法・今後のタスクも記載)
+├── README.md           # 人間向けセットアップ手順(テスト実行方法・exe化・複数PC閲覧・今後のタスクも記載)
 ├── templates/index.html
 └── static/
     ├── css/style.css   # 白背景テーマ。デザイントークンは:rootのCSS変数に集約
@@ -248,7 +256,7 @@ UI上の写真パネルは廃止し、左パネル下部に外部Boxフォルダ
 `excel_photos.py`/`box_client.py`のBoxコードは削除せず保持。承認が得られた場合や
 クライアント資格情報許可(CCG)等の別方式が使えるようになった場合に、下記タスクを再開する。
 
-**exe化を試行 → 実機で原因不明のPI接続エラーが再発したため一旦revert(2026-07-21)**:
+**exe化を試行 → revert → 原因はおそらく古いプロセスと判明・再適用(2026-07-21)**:
 `SnapMonitor.spec`(PyInstaller単一exeビルド設定)・`app.py`への起動時ブラウザ自動オープン
 (`threading.Timer`+`webbrowser.open`、`debug=False`に変更)・`config.py`への`BASE_DIR`
 (exe化時はexe自身のフォルダを基準に`config.txt`等を絶対パス解決)を実装しコミット
@@ -263,29 +271,44 @@ UI上の写真パネルは廃止し、左パネル下部に外部Boxフォルダ
 - この「診断コマンドでは正しいのに、ブラウザ経由のAPIリクエストだけ古いプレースホルダの
   エラーになる」という矛盾から、**ポート5000を握ったままの古いプロセス(以前のexe起動や
   `python app.py`の多重起動)が残っていて、ブラウザが実際にはそちらに接続している**可能性を
-  疑い、タスクマネージャーでの確認をユーザーに依頼した。結果を確認する前にチャットの区切りと
-  なったため、**次のタスクとしてこの切り分けの続きから再開すること**
+  疑った
 - ユーザー指示により、原因が整理できるまで`git revert 8e2283e`(コミット`b596215`)で
-  exe化関連の変更は一旦すべて取り消し済み。`SnapMonitor.spec`は削除され、
-  `app.py`/`config.py`はexe対応前の状態(`debug=True`、`BASE_DIR`概念なし)に戻っている
-- 再開する場合: (1)タスクマネージャーで`SnapMonitor.exe`/`python.exe`の重複起動がないか
-  確認、(2)クリーンな状態で`python app.py`→ブラウザでPI接続を再テスト、(3)問題なければ
-  `git show 8e2283e`で当時の変更内容を確認しつつexe化コードを再度適用、
-  という順で進めるとよい
+  exe化関連の変更は一旦すべて取り消し
+- **2026-07-21 追記(切り分け結果)**: ユーザーがタスクマネージャーで確認したところ、
+  `SnapMonitor.exe`/`python.exe`の重複起動は見当たらなかった。それでも一度この状態で
+  再テストした際はうまくいかず、**PCを再起動してから改めてクリーンな状態でテストしたところ
+  成功した**。「タスクマネージャー上は多重起動が見えないが、再起動で直った」ことから、
+  完全な原因確定はできていないものの(タスクマネージャーに出ない何らかのプロセス/ソケットの
+  残存、OS側のポート開放待ち状態など)、**exe化コード自体(`8e2283e`の内容)がバグの原因では
+  なかった可能性が高い**と判断し、同じ内容を`git revert b596215`で再度復元(`b995f09`)。
+  併せて`config.py`の`BASE_DIR`解決ロジックに単体テスト(`test_config.py`)を追加(45件全て
+  パス確認済み、実行はscratch venvで`pip install -r requirements.txt`後に`pytest`)
+- **再発した場合の切り分け方**: 同様の「診断コマンドは正しいのにブラウザ経由だけ古い値/エラーに
+  なる」症状が再発したら、まずタスクマネージャーでの確認に加えて**PC再起動**を先に試す
+  (今回はこれで解消した)。それでも直らない場合は、`netstat -ano | findstr :5000`
+  (PowerShell)等でポート5000を握っているプロセスのPIDを直接特定する方法も有効
 
 ### B. 次の実装タスク(優先順、Claude Codeで対応)
 
-1. **exe化再開の前提となる原因調査**(上記参照): 古いプロセスの多重起動がないか確認し、
-   クリーンな状態でPI接続を再確認してからexe化コードの再適用を検討する
-2. PI接続は確認済み。`get_available_defect_types()`が返す欠点種類の中身(文字列として
+1. **exe化コードは再適用済み(`b995f09`)、ただし未push**: ユーザーの確認が取れ次第
+   `git push`する。その後ユーザー実機で`pyinstaller SnapMonitor.spec`→
+   `dist/SnapMonitor.exe`起動→ブラウザ自動オープン→PI接続成功、を再確認してもらう
+2. **複数PC(最大5台程度)からの閲覧に対応(2026-07-21追加)**: `config.py`の`FLASK_HOST`は
+   既に`config.txt`の`[flask] host`から読む設計だったため、コード変更は不要と判断。
+   ホストPC1台の`config.txt`で`host = 0.0.0.0`に変更するだけで、同一LAN上の他PCから
+   `http://<ホストPCのIP>:5000/`で閲覧可能。手順・注意点はREADME「8. 複数PCから閲覧する」
+   に追記済み。サーバーはFlask開発用サーバー(`app.run()`)のまま運用する方針(ユーザー承認済み、
+   閲覧5台程度の軽負荷であれば十分と判断。不安定になるようなら`waitress`等への切り替えを検討)。
+   ホストPC側のWindowsファイアウォールでのポート開放は実機操作のためユーザー側対応
+3. PI接続は確認済み。`get_available_defect_types()`が返す欠点種類の中身(文字列として
    正しく読めるか=既知リスク2)、タイムゾーンのずれ(既知リスク1)、`duration_unit`の
    妥当性(既知リスク5)を、実際のデータを見ながら確認・調整する
-3. (Box連携再開時)`/api/photos` を excel_photos ベースに切り替え。
+4. (Box連携再開時)`/api/photos` を excel_photos ベースに切り替え。
    `get_photos()`は`{id, name, timestamp}`のみ返す設計のため、サムネイル表示には
    `index.json`の`path`(ローカル保存先)を使う経路を`app.py`側に追加する必要あり
    (現状の`/api/photo_thumbnail/<id>`はBox APIから取得する前提なので、ローカルファイルを
    返すエンドポイント、または`get_photos`の戻り値にpathを含める設計変更を検討)
-4. (Box連携再開時)フィルターパネルに「写真を今すぐ同期」ボタン + `POST /api/photos/sync`
+5. (Box連携再開時)フィルターパネルに「写真を今すぐ同期」ボタン + `POST /api/photos/sync`
    (`excel_photos.sync_cache()`を呼ぶ)追加
 
 ## 開発環境メモ
