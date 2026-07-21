@@ -34,21 +34,25 @@ class _FakeConnection:
 
 @pytest.fixture(autouse=True)
 def _configure(monkeypatch):
+    # SQL接続・集計まわりはconfig.txt由来の値
     monkeypatch.setattr(config, "SQL_LINKED_SERVER", "test_linked_server")
-    monkeypatch.setattr(config, "AF_HIERARCHY_PATH", "\\03. Test\\")
-    monkeypatch.setattr(config, "AF_ELEMENT_NAME", "DefectDetection")
-    monkeypatch.setattr(config, "ATTR_START_TIME", "StartTime")
-    monkeypatch.setattr(config, "ATTR_DURATION", "Duration")
-    monkeypatch.setattr(config, "ATTR_POSITION", "Position")
-    monkeypatch.setattr(config, "ATTR_DEFECT_TYPE", "DefectType")
     monkeypatch.setattr(config, "DURATION_UNIT", "seconds")
     monkeypatch.setattr(config, "TIMESTAMP_MATCH_TOLERANCE", "2s")
     monkeypatch.setattr(config, "DEFECT_TYPE_LOOKBACK_DAYS", 90)
-    monkeypatch.setattr(config, "AF_PRODUCT_ELEMENT_NAME", "ProductEdge")
-    monkeypatch.setattr(config, "ATTR_PRODUCT_GROSS_START", "GrossStart")
-    monkeypatch.setattr(config, "ATTR_PRODUCT_GROSS_END", "GrossEnd")
-    monkeypatch.setattr(config, "ATTR_PRODUCT_NET_START", "NetStart")
-    monkeypatch.setattr(config, "ATTR_PRODUCT_NET_END", "NetEnd")
+
+    # AFフォルダ階層・要素名・属性名はpi_client.pyにハードコードされているため、
+    # テストではpi_client側の定数をモックする
+    monkeypatch.setattr(pi_client, "AF_HIERARCHY_PATH", "\\03. Test\\")
+    monkeypatch.setattr(pi_client, "AF_ELEMENT_NAME", "DefectDetection")
+    monkeypatch.setattr(pi_client, "ATTR_START_TIME", "StartTime")
+    monkeypatch.setattr(pi_client, "ATTR_DURATION", "Duration")
+    monkeypatch.setattr(pi_client, "ATTR_POSITION", "Position")
+    monkeypatch.setattr(pi_client, "ATTR_DEFECT_TYPE", "DefectType")
+    monkeypatch.setattr(pi_client, "AF_PRODUCT_ELEMENT_NAME", "ProductEdge")
+    monkeypatch.setattr(pi_client, "ATTR_PRODUCT_GROSS_START", "GrossStart")
+    monkeypatch.setattr(pi_client, "ATTR_PRODUCT_GROSS_END", "GrossEnd")
+    monkeypatch.setattr(pi_client, "ATTR_PRODUCT_NET_START", "NetStart")
+    monkeypatch.setattr(pi_client, "ATTR_PRODUCT_NET_END", "NetEnd")
 
 
 # ===================== _build_sql =====================

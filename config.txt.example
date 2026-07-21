@@ -20,20 +20,12 @@ sql_user = YOUR_SQL_USER
 sql_password = YOUR_SQL_PASSWORD
 sql_database = YOUR_SQL_DATABASE
 
-; OPENQUERY先のリンクサーバー名(PI用にSQL Server側で設定されているもの)
-sql_linked_server = YOUR_LINKED_SERVER_NAME
+; OPENQUERY先のリンクサーバー名(PI System Explorerで確認済みのため既定値あり)
+sql_linked_server = aichi_2fl
 
-; 欠点データ・製品位置データが属するAFフォルダ階層(eh.Path)。両要素で共通の前提
-af_hierarchy_path = YourFolder\SubFolder\
-
-; 欠点データを持つAF要素名(a.Element)
-af_element_name = DefectDetection
-
-; 欠点データの4属性(実際のAF属性名に置き換える)
-attr_start_time = StartTime
-attr_duration = Duration
-attr_position = Position
-attr_defect_type = DefectType
+; AFフォルダ階層・要素名・属性名(a.Element/a.Name)は、PI System Explorerで
+; 確認済みの実値を pi_client.py に直接ハードコードしているため、ここには置きません。
+; 変更する場合は pi_client.py 冒頭の定数を編集してください。
 
 ; ATTR_DURATIONの値の単位: seconds | minutes | milliseconds
 duration_unit = seconds
@@ -46,14 +38,6 @@ timestamp_match_tolerance = 2s
 
 ; 欠点種類ドロップダウン用に遡って取得する日数
 defect_type_lookback_days = 90
-
-; 製品位置データ(Gross幅・Net幅)。欠点データと別要素名なら af_product_element_name を指定
-; (AFフォルダ階層は af_hierarchy_path を共有)
-af_product_element_name =
-attr_product_gross_start = GrossStartPosition
-attr_product_gross_end = GrossEndPosition
-attr_product_net_start = NetStartPosition
-attr_product_net_end = NetEndPosition
 
 [box]
 ; Box Developer Consoleでダウンロードした認証設定ファイルのパス

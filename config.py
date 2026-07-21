@@ -42,20 +42,12 @@ SQL_USER = _get("pi", "sql_user")
 SQL_PASSWORD = _get("pi", "sql_password")
 SQL_DATABASE = _get("pi", "sql_database")
 
-# OPENQUERY先のリンクサーバー名
-SQL_LINKED_SERVER = _get("pi", "sql_linked_server")
+# OPENQUERY先のリンクサーバー名(PI System Explorerで確認済み: aichi_2fl)
+SQL_LINKED_SERVER = _get("pi", "sql_linked_server", fallback="aichi_2fl")
 
-# 欠点データ・製品位置データが属するAFフォルダ階層(eh.Path)。両要素で共通の前提
-AF_HIERARCHY_PATH = _get("pi", "af_hierarchy_path")
-
-# 欠点データを持つAF要素名(a.Element)
-AF_ELEMENT_NAME = _get("pi", "af_element_name")
-
-# 欠点データは以下4つの属性に分かれて格納されている想定
-ATTR_START_TIME = _get("pi", "attr_start_time")      # 発生時刻
-ATTR_DURATION = _get("pi", "attr_duration")           # 継続発生時間
-ATTR_POSITION = _get("pi", "attr_position")           # 発生位置(0〜POSITION_MAX、大きいほど左側)
-ATTR_DEFECT_TYPE = _get("pi", "attr_defect_type")     # 欠点の種類
+# AFフォルダ階層・要素名・属性名(a.Element/a.Name)は、PI System Explorerで
+# 確認済みの実値を pi_client.py に直接ハードコードしている(config.txtには置かない)。
+# 変更する場合は pi_client.py 冒頭の定数を編集すること。
 
 # ATTR_DURATIONの値の単位。get_defects()内でこれを分単位に変換します。
 DURATION_UNIT = _get("pi", "duration_unit", fallback="seconds")  # "seconds"|"minutes"|"milliseconds"
@@ -69,14 +61,6 @@ TIMESTAMP_MATCH_TOLERANCE = _get("pi", "timestamp_match_tolerance", fallback="2s
 # フィルターのドロップダウンに表示する欠点種類一覧を取得する際に遡る日数
 # (PIconnectのPI相対時間構文"*-90d"はSQL直接クエリでは使えないため、日数指定に変更)
 DEFECT_TYPE_LOOKBACK_DAYS = _parser.getint("pi", "defect_type_lookback_days", fallback=90)
-
-# 製品位置データ(Gross幅・Net幅、常時表示)。AFフォルダ階層はAF_HIERARCHY_PATHを共有
-# 位置の大小関係(値が大きいほど左側): Gross終わり > Net終わり > Net開始 > Gross開始
-AF_PRODUCT_ELEMENT_NAME = _get("pi", "af_product_element_name") or AF_ELEMENT_NAME
-ATTR_PRODUCT_GROSS_START = _get("pi", "attr_product_gross_start")
-ATTR_PRODUCT_GROSS_END = _get("pi", "attr_product_gross_end")
-ATTR_PRODUCT_NET_START = _get("pi", "attr_product_net_start")
-ATTR_PRODUCT_NET_END = _get("pi", "attr_product_net_end")
 
 # ---------------------------------------------------------------
 # Box.com 接続設定
