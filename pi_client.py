@@ -119,6 +119,14 @@ def _attribute_series(df_raw: pd.DataFrame, attr_name: str, numeric: bool) -> pd
     return pd.Series(values.values, index=pd.DatetimeIndex(sub["TimeStamp"]))
 
 
+def _drop_zero_outliers(series: pd.Series) -> pd.Series:
+    """
+    製品位置(Gross/Net)センサーのハンチング(瞬間的に0を記録する異常値)を除外する。
+    0は正常な位置として扱わず、欠測として扱う。
+    """
+    return series[series != 0]
+
+
 def _duration_to_minutes(series: pd.Series) -> pd.Series:
     """ATTR_DURATIONの値を分単位に変換する"""
     values = pd.to_numeric(series, errors="coerce")
@@ -246,10 +254,10 @@ def get_product_position(start, end) -> pd.DataFrame:
     if df_raw.empty:
         return pd.DataFrame(columns=["timestamp", "gross_start", "gross_end", "net_start", "net_end"])
 
-    gross_start_series = _attribute_series(df_raw, ATTR_PRODUCT_GROSS_START, numeric=True)
-    gross_end_series = _attribute_series(df_raw, ATTR_PRODUCT_GROSS_END, numeric=True)
-    net_start_series = _attribute_series(df_raw, ATTR_PRODUCT_NET_START, numeric=True)
-    net_end_series = _attribute_series(df_raw, ATTR_PRODUCT_NET_END, numeric=True)
+    gross_start_series = _drop_zero_outliers(_attribute_series(df_raw, ATTR_PRODUCT_GROSS_START, numeric=True))
+    gross_end_series = _drop_zero_outliers(_attribute_series(df_raw, ATTR_PRODUCT_GROSS_END, numeric=True))
+    net_start_series = _drop_zero_outliers(_attribute_series(df_raw, ATTR_PRODUCT_NET_START, numeric=True))
+    net_end_series = _drop_zero_outliers(_attribute_series(df_raw, ATTR_PRODUCT_NET_END, numeric=True))
 
     if gross_start_series.empty:
         return pd.DataFrame(columns=["timestamp", "gross_start", "gross_end", "net_start", "net_end"])

@@ -250,7 +250,7 @@ def test_get_product_position_merges_four_attributes(monkeypatch):
     df_raw = pd.DataFrame({
         "Attribute": ["GrossStart", "GrossEnd", "NetStart", "NetEnd"],
         "TimeStamp": pd.to_datetime(["2026-03-10 08:00:00"] * 4),
-        "Value": ["0.0", "210.0", "10.0", "200.0"],
+        "Value": ["5.0", "210.0", "10.0", "200.0"],
     })
     monkeypatch.setattr(pi_client, "_fetch_element_raw", lambda element, start, end: df_raw)
 
@@ -258,7 +258,7 @@ def test_get_product_position_merges_four_attributes(monkeypatch):
 
     assert len(result) == 1
     row = result.iloc[0]
-    assert row["gross_start"] == 0.0
+    assert row["gross_start"] == 5.0
     assert row["gross_end"] == 210.0
     assert row["net_start"] == 10.0
     assert row["net_end"] == 200.0
@@ -273,6 +273,46 @@ def test_get_product_position_returns_empty_dataframe_when_no_data(monkeypatch):
     result = pi_client.get_product_position("2026-03-10T00:00:00", "2026-03-11T00:00:00")
 
     assert result.empty
+
+
+def test_get_product_position_excludes_zero_outliers_on_anchor_attribute(monkeypatch):
+    # GrossStartに0(ハンチングによる異常値)が混じっているタイムスタンプは除外される
+    df_raw = pd.DataFrame({
+        "Attribute": ["GrossStart", "GrossStart", "GrossEnd", "GrossEnd", "NetStart", "NetStart", "NetEnd", "NetEnd"],
+        "TimeStamp": pd.to_datetime([
+            "2026-03-10 08:00:00", "2026-03-10 09:00:00",
+            "2026-03-10 08:00:00", "2026-03-10 09:00:00",
+            "2026-03-10 08:00:00", "2026-03-10 09:00:00",
+            "2026-03-10 08:00:00", "2026-03-10 09:00:00",
+        ]),
+        "Value": ["0.0", "5.0", "210.0", "212.0", "10.0", "11.0", "200.0", "202.0"],
+    })
+    monkeypatch.setattr(pi_client, "_fetch_element_raw", lambda element, start, end: df_raw)
+
+    result = pi_client.get_product_position("2026-03-10T00:00:00", "2026-03-11T00:00:00")
+
+    assert len(result) == 1
+    assert result.iloc[0]["gross_start"] == 5.0
+
+
+def test_get_product_position_excludes_zero_outliers_on_other_attribute(monkeypatch):
+    # GrossEndに0(ハンチングによる異常値)が混じっている場合、その時刻ではNaNになり
+    # 別時刻の正常値がmerge_asofで拾われる
+    df_raw = pd.DataFrame({
+        "Attribute": ["GrossStart", "GrossEnd", "GrossEnd", "NetStart", "NetEnd"],
+        "TimeStamp": pd.to_datetime([
+            "2026-03-10 08:00:00",
+            "2026-03-10 08:00:00", "2026-03-10 08:00:01",
+            "2026-03-10 08:00:00", "2026-03-10 08:00:00",
+        ]),
+        "Value": ["5.0", "0.0", "210.0", "10.0", "200.0"],
+    })
+    monkeypatch.setattr(pi_client, "_fetch_element_raw", lambda element, start, end: df_raw)
+
+    result = pi_client.get_product_position("2026-03-10T00:00:00", "2026-03-11T00:00:00")
+
+    assert len(result) == 1
+    assert result.iloc[0]["gross_end"] == 210.0
 
 
 # ===================== get_hourly_trend =====================

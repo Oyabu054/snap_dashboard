@@ -62,7 +62,16 @@ def api_trend():
         start, end = _parse_range()
         defect_types = request.args.getlist("type")
         df = pi_client.get_hourly_trend(start, end, defect_types or None)
-        data = [{"hour": row.hour.isoformat(), "count": int(row.count)} for row in df.itertuples()]
+        data = [
+            {
+                "hour": row.hour.isoformat(),
+                "occurrence_minutes": (
+                    float(row.occurrence_minutes) if pd.notna(row.occurrence_minutes) else None
+                ),
+                "count": int(row.count),
+            }
+            for row in df.itertuples()
+        ]
         return jsonify({"data": data})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
