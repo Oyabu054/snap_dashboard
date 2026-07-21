@@ -53,6 +53,8 @@ def _configure(monkeypatch):
     monkeypatch.setattr(pi_client, "ATTR_PRODUCT_GROSS_END", "GrossEnd")
     monkeypatch.setattr(pi_client, "ATTR_PRODUCT_NET_START", "NetStart")
     monkeypatch.setattr(pi_client, "ATTR_PRODUCT_NET_END", "NetEnd")
+    monkeypatch.setattr(pi_client, "ATTR_CST_ROTATION", "CstRotation")
+    monkeypatch.setattr(pi_client, "ATTR_THICKNESS", "Thickness")
 
 
 # ===================== _build_sql =====================
@@ -386,3 +388,70 @@ def test_get_hourly_trend_aggregates_occurrence_minutes(monkeypatch):
     assert result.iloc[0]["occurrence_minutes"] == 8.0
     assert result.iloc[0]["count"] == 2
     assert result.iloc[1]["occurrence_minutes"] == 2.0
+
+
+# ===================== get_cst_rotation_trend =====================
+
+def test_get_cst_rotation_trend_resamples_to_10min_average(monkeypatch):
+    # 08:00〜08:09の1分間隔10点(値1〜10) → 平均5.5、08:10の1点(値20) → 平均20.0
+    timestamps = pd.date_range("2026-03-10 08:00:00", periods=10, freq="1min")
+    timestamps = timestamps.append(pd.DatetimeIndex(["2026-03-10 08:10:00"]))
+    df_raw = pd.DataFrame({
+        "Attribute": ["CstRotation"] * 11,
+        "TimeStamp": timestamps,
+        "Value": [str(v) for v in list(range(1, 11)) + [20]],
+    })
+    monkeypatch.setattr(pi_client, "_fetch_element_raw", lambda element, start, end: df_raw)
+
+    result = pi_client.get_cst_rotation_trend("2026-03-10T00:00:00", "2026-03-11T00:00:00")
+
+    assert list(result.columns) == ["timestamp", "value"]
+    assert len(result) == 2
+    assert result.iloc[0]["timestamp"] == pd.Timestamp("2026-03-10 08:00:00")
+    assert result.iloc[0]["value"] == 5.5
+    assert result.iloc[1]["timestamp"] == pd.Timestamp("2026-03-10 08:10:00")
+    assert result.iloc[1]["value"] == 20.0
+
+
+def test_get_cst_rotation_trend_returns_empty_dataframe_when_no_data(monkeypatch):
+    monkeypatch.setattr(
+        pi_client, "_fetch_element_raw",
+        lambda element, start, end: pd.DataFrame(columns=["Attribute", "TimeStamp", "Value"]),
+    )
+
+    result = pi_client.get_cst_rotation_trend("2026-03-10T00:00:00", "2026-03-11T00:00:00")
+
+    assert result.empty
+    assert list(result.columns) == ["timestamp", "value"]
+
+
+# ===================== get_thickness_trend =====================
+
+def test_get_thickness_trend_returns_raw_values_without_resampling(monkeypatch):
+    df_raw = pd.DataFrame({
+        "Attribute": ["Thickness", "Thickness"],
+        "TimeStamp": pd.to_datetime(["2026-03-10 08:05:00", "2026-03-10 08:00:00"]),
+        "Value": ["5.1", "5.0"],
+    })
+    monkeypatch.setattr(pi_client, "_fetch_element_raw", lambda element, start, end: df_raw)
+
+    result = pi_client.get_thickness_trend("2026-03-10T00:00:00", "2026-03-11T00:00:00")
+
+    assert list(result.columns) == ["timestamp", "value"]
+    assert len(result) == 2
+    assert list(result["timestamp"]) == list(
+        pd.to_datetime(["2026-03-10 08:00:00", "2026-03-10 08:05:00"])
+    )
+    assert list(result["value"]) == [5.0, 5.1]
+
+
+def test_get_thickness_trend_returns_empty_dataframe_when_no_data(monkeypatch):
+    monkeypatch.setattr(
+        pi_client, "_fetch_element_raw",
+        lambda element, start, end: pd.DataFrame(columns=["Attribute", "TimeStamp", "Value"]),
+    )
+
+    result = pi_client.get_thickness_trend("2026-03-10T00:00:00", "2026-03-11T00:00:00")
+
+    assert result.empty
+    assert list(result.columns) == ["timestamp", "value"]

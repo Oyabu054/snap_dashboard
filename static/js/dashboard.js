@@ -10,6 +10,10 @@ const COLORS = {
   accent: '#d97706',
   accent2: '#0e7490',
   critical: '#b91c1c',
+  // CST回転数・厚み(トレンドグラフの重ね描画系列)。既存8色パレットと合わせて
+  // dataviz skillのvalidate_palette.jsでCVD安全性を確認済み(衝突なし)
+  cstRotation: '#0891b2',
+  thickness: '#a16207',
 };
 
 // 欠点種類ごとの識別色(固定順・カラーユニバーサルデザイン検証済み)
@@ -18,6 +22,24 @@ const PALETTE = ['#2a78d6', '#008300', '#e87ba4', '#eda100', '#1baf7a', '#eb6834
 // X軸(日時)の表示フォーマット・目盛り密度(共通)
 const TIME_TICKFORMAT = '%-m/%-d %H:%M';
 const TIME_NTICKS = 20;
+
+// CST回転数・厚みの軸レンジ計算パラメータ(ユーザー指定: 取得値の最小/最大を四捨五入し、
+// それぞれ外側にこの分だけ余白を持たせる。CST回転数は物理的な上限26でキャップする)
+const CST_ROTATION_AXIS_PAD = 3;
+const CST_ROTATION_AXIS_MAX = 26;
+const THICKNESS_AXIS_PAD = 1;
+
+// 軸レンジは「適用」操作時のみ再計算し、リアルタイム更新中は固定する(ユーザー指示)
+let cstRotationAxisRange = null;
+let thicknessAxisRange = null;
+
+function roundedAxisRange(values, pad, capMax) {
+  if (!values.length) return null;
+  const minV = Math.round(Math.min(...values));
+  const maxV = Math.round(Math.max(...values));
+  const hi = capMax != null ? Math.min(maxV + pad, capMax) : maxV + pad;
+  return [minV - pad, hi];
+}
 
 let liveTimer = null;
 
@@ -102,7 +124,10 @@ function baseLayout(extra = {}) {
     paper_bgcolor: COLORS.bg,
     plot_bgcolor: COLORS.bg,
     font: { color: COLORS.text, family: 'IBM Plex Sans JP, sans-serif', size: 11 },
-    margin: { l: 50, r: 20, t: 10, b: 40 },
+    // r(右余白)はトレンドグラフのCST回転数・厚み用の追加軸2本分を確保した値。
+    // スナップマップ側は使わないが、両チャートのプロット領域幅を揃えて縦方向の
+    // X軸(時刻)位置を一致させるため、同じ値をここで共通指定している
+    margin: { l: 50, r: 110, t: 10, b: 40 },
     xaxis: {
       tickformat: TIME_TICKFORMAT, nticks: TIME_NTICKS,
       gridcolor: COLORS.grid, zerolinecolor: COLORS.grid, color: COLORS.muted,
@@ -231,7 +256,7 @@ function buildHourlyTrendByType(defects) {
 // バーの本数が少ないと「1時間」から幅がズレて見える。明示的に1時間分で固定する。
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
-function renderTrend(defects, types, range) {
+function renderTrend(defects, types, range, cstRotation, thickness, recalcAxisRange) {
   const { hours, buckets } = buildHourlyTrendByType(defects);
   const colors = typeColorMap();
 
@@ -247,15 +272,59 @@ function renderTrend(defects, types, range) {
     hovertemplate: `<b>${t}</b><br>%{x|${TIME_TICKFORMAT}}<br>発生分数: %{y:.1f}分<extra></extra>`,
   }));
 
+  // 軸レンジは「適用」操作時のみ再計算し、リアルタイム更新中(recalcAxisRange=false)は
+  // 前回の確定値を使い回す。データが空の回は前回値をそのまま維持する
+  if (recalcAxisRange) {
+    cstRotationAxisRange = roundedAxisRange(
+      cstRotation.map((d) => d.value), CST_ROTATION_AXIS_PAD, CST_ROTATION_AXIS_MAX,
+    ) || cstRotationAxisRange;
+    thicknessAxisRange = roundedAxisRange(
+      thickness.map((d) => d.value), THICKNESS_AXIS_PAD,
+    ) || thicknessAxisRange;
+  }
+
+  traces.push({
+    x: cstRotation.map((d) => d.timestamp),
+    y: cstRotation.map((d) => d.value),
+    type: 'scatter',
+    mode: 'lines',
+    name: 'CST回転数',
+    yaxis: 'y2',
+    line: { color: COLORS.cstRotation, width: 2 },
+    hovertemplate: `<b>CST回転数</b><br>%{x|${TIME_TICKFORMAT}}<br>%{y:.1f} rpm<extra></extra>`,
+  });
+  traces.push({
+    x: thickness.map((d) => d.timestamp),
+    y: thickness.map((d) => d.value),
+    type: 'scatter',
+    mode: 'lines',
+    name: '厚み',
+    yaxis: 'y3',
+    line: { color: COLORS.thickness, width: 2, dash: 'dash' },
+    hovertemplate: `<b>厚み</b><br>%{x|${TIME_TICKFORMAT}}<br>%{y:.2f} mm<extra></extra>`,
+  });
+
   Plotly.react('trendChart', traces, baseLayout({
     barmode: 'stack',
-    showlegend: false,
+    // 発生分数の系列(積み上げ棒)は左パネルのチェックボックスが凡例を兼ねるため非表示のまま、
+    // CST回転数・厚み(上記2トレース)だけがここでの凡例に表示される
+    showlegend: true,
     // 上段の欠点マップとX軸(時間)の目盛り位置がずれないよう、同じ表示範囲を明示指定する
     xaxis: {
       tickformat: TIME_TICKFORMAT, nticks: TIME_NTICKS, range,
       gridcolor: COLORS.grid, zerolinecolor: COLORS.grid, color: COLORS.muted,
     },
     yaxis: { title: '発生分数 (分/時間)', gridcolor: COLORS.grid, color: COLORS.muted },
+    yaxis2: {
+      title: 'CST回転数 (rpm)', overlaying: 'y', side: 'right',
+      range: cstRotationAxisRange || undefined,
+      showgrid: false, zeroline: false, color: COLORS.cstRotation,
+    },
+    yaxis3: {
+      title: '厚み (mm)', overlaying: 'y', side: 'right', anchor: 'free', autoshift: true,
+      range: thicknessAxisRange || undefined,
+      showgrid: false, zeroline: false, color: COLORS.thickness,
+    },
   }), { responsive: true, displayModeBar: false });
 }
 
@@ -325,7 +394,7 @@ function setupPeriodSlider() {
   });
 }
 
-async function applyFilter() {
+async function applyFilter(recalcAxisRange = true) {
   showError(null);
   const startLocal = el('startInput').value;
   const endLocal = el('endInput').value;
@@ -344,15 +413,21 @@ async function applyFilter() {
     const paramsDefects = new URLSearchParams({ start, end });
     types.forEach((t) => paramsDefects.append('type', t));
     const paramsProduct = new URLSearchParams({ start, end });
+    const paramsCst = new URLSearchParams({ start, end });
+    const paramsThickness = new URLSearchParams({ start, end });
 
-    const [{ data: defects }, { data: productPos }] = await Promise.all([
+    const [
+      { data: defects }, { data: productPos }, { data: cstRotation }, { data: thickness },
+    ] = await Promise.all([
       fetchJSON(`/api/defects?${paramsDefects}`),
       fetchJSON(`/api/product_position?${paramsProduct}`),
+      fetchJSON(`/api/cst_rotation_trend?${paramsCst}`),
+      fetchJSON(`/api/thickness_trend?${paramsThickness}`),
     ]);
 
     const range = [start, end];
     renderDefectMap(defects, productPos, types, range);
-    renderTrend(defects, types, range);
+    renderTrend(defects, types, range, cstRotation, thickness, recalcAxisRange);
     resetPeriodSlider(new Date(start).getTime(), new Date(end).getTime());
 
     el('lastUpdated').textContent = `最終更新 ${new Date().toLocaleTimeString('ja-JP')}`;
@@ -364,16 +439,30 @@ async function applyFilter() {
   }
 }
 
+// リアルタイム更新のポーリング間隔
+const LIVE_UPDATE_INTERVAL_MS = 5 * 60 * 1000; // 5分
+
+function startLiveUpdates() {
+  if (liveTimer) return;
+  liveTimer = setInterval(() => {
+    el('endInput').value = toLocalInputValue(new Date());
+    // リアルタイム更新中はデータのみ更新し、CST回転数・厚みの軸レンジは
+    // 直前の「適用」操作時点の値のまま固定する(ユーザー指示)
+    applyFilter(false);
+  }, LIVE_UPDATE_INTERVAL_MS);
+}
+
+function stopLiveUpdates() {
+  clearInterval(liveTimer);
+  liveTimer = null;
+}
+
 function setupLiveToggle() {
   el('liveToggle').addEventListener('change', (e) => {
     if (e.target.checked) {
-      liveTimer = setInterval(() => {
-        el('endInput').value = toLocalInputValue(new Date());
-        applyFilter();
-      }, 30000);
+      startLiveUpdates();
     } else {
-      clearInterval(liveTimer);
-      liveTimer = null;
+      stopLiveUpdates();
     }
   });
 }
@@ -388,14 +477,19 @@ function setupQuickRange() {
 }
 
 async function init() {
-  setDefaultRange(24);
+  setDefaultRange(24 * 3); // 初期表示は現在時刻から3日前まで
   await loadDefectTypes();
-  el('applyFilter').addEventListener('click', applyFilter);
+  el('applyFilter').addEventListener('click', () => applyFilter(true));
   setupLiveToggle();
   setupQuickRange();
   setupPeriodSlider();
   setupTypeSelectButtons();
-  applyFilter();
+  await applyFilter();
+  // リアルタイム更新はデフォルトON(index.htmlのliveToggleにchecked指定)。
+  // HTMLのchecked属性だけではchangeイベントが発火しないため、ここで明示的に開始する
+  if (el('liveToggle').checked) {
+    startLiveUpdates();
+  }
 }
 
 document.addEventListener('DOMContentLoaded', init);

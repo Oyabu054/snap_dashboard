@@ -48,6 +48,10 @@ ATTR_PRODUCT_GROSS_END = "グロス終了位置"
 ATTR_PRODUCT_NET_START = "ネット開始位置"
 ATTR_PRODUCT_NET_END = "ネット終了位置"
 
+# CST回転数・厚みも同じ要素に記録されている(2026-07-21 AF階層に追加)
+ATTR_CST_ROTATION = "CST回転数"
+ATTR_THICKNESS = "厚み"
+
 # ATTR_DEFECT_TYPEの値のうち、実際の欠点(スナップ)ではないため常に除外する種類
 # (ユーザー指示、2026-07-21)。defect_typesフィルターの指定有無によらず除外する。
 EXCLUDED_DEFECT_TYPES = {"NET切れ", "RIP", "その他", "不明"}
@@ -275,3 +279,42 @@ def get_product_position(start, end) -> pd.DataFrame:
     df = _merge_on_nearest(df, net_end_series, "net_end")
     df.rename(columns={"pi_timestamp": "timestamp"}, inplace=True)
     return df
+
+
+def get_cst_rotation_trend(start, end) -> pd.DataFrame:
+    """
+    CST回転数(rpm)を10分平均で取得する。時間帯別トレンドグラフに重ねて表示するための系列。
+
+    Returns
+    -------
+    pd.DataFrame[timestamp, value]
+    """
+    df_raw = _fetch_element_raw(AF_ELEMENT_NAME, start, end)
+    if df_raw.empty:
+        return pd.DataFrame(columns=["timestamp", "value"])
+
+    series = _attribute_series(df_raw, ATTR_CST_ROTATION, numeric=True)
+    if series.empty:
+        return pd.DataFrame(columns=["timestamp", "value"])
+
+    resampled = series.resample("10min").mean().dropna()
+    return pd.DataFrame({"timestamp": resampled.index, "value": resampled.values})
+
+
+def get_thickness_trend(start, end) -> pd.DataFrame:
+    """
+    厚み(mm)を生データのまま取得する。時間帯別トレンドグラフに重ねて表示するための系列。
+
+    Returns
+    -------
+    pd.DataFrame[timestamp, value]
+    """
+    df_raw = _fetch_element_raw(AF_ELEMENT_NAME, start, end)
+    if df_raw.empty:
+        return pd.DataFrame(columns=["timestamp", "value"])
+
+    series = _attribute_series(df_raw, ATTR_THICKNESS, numeric=True)
+    if series.empty:
+        return pd.DataFrame(columns=["timestamp", "value"])
+
+    return pd.DataFrame({"timestamp": series.index, "value": series.values})

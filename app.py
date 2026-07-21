@@ -113,6 +113,36 @@ def api_product_position():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/cst_rotation_trend")
+def api_cst_rotation_trend():
+    """CST回転数(rpm、10分平均)。時間帯別トレンドグラフに重ねて表示する。"""
+    try:
+        start, end = _parse_range()
+        df = pi_client.get_cst_rotation_trend(start, end)
+        data = [
+            {"timestamp": row.timestamp.isoformat(), "value": float(row.value)}
+            for row in df.itertuples()
+        ]
+        return jsonify({"data": data})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/thickness_trend")
+def api_thickness_trend():
+    """厚み(mm、生データ)。時間帯別トレンドグラフに重ねて表示する。"""
+    try:
+        start, end = _parse_range()
+        df = pi_client.get_thickness_trend(start, end)
+        data = [
+            {"timestamp": row.timestamp.isoformat(), "value": float(row.value)}
+            for row in df.itertuples()
+        ]
+        return jsonify({"data": data})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/photos")
 def api_photos():
     try:
