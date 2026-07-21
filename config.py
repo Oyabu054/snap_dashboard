@@ -10,11 +10,24 @@
 - このモジュールは config.txt を読み込み、他のモジュールから
   `import config; config.SQL_HOST` のようにこれまで通り参照できる形で
   定数として展開するだけの役割
+
+PyInstallerでexe化した場合、`__file__`はexe内部の一時展開フォルダを指してしまい
+config.txt(exeの外、ユーザーが編集するファイル)を見つけられない。BASE_DIRは
+「exe化されていればexe自身のあるフォルダ、そうでなければこのファイルのあるフォルダ」
+を指すようにし、他のモジュール(cache保存先やBox JWT設定ファイルのパス解決)からも
+`config.BASE_DIR`として参照できるようにしている。
 """
 import configparser
+import sys
 from pathlib import Path
 
-_CONFIG_PATH = Path(__file__).parent / "config.txt"
+if getattr(sys, "frozen", False):
+    # PyInstallerでビルドされたexeとして実行されている場合
+    BASE_DIR = Path(sys.executable).parent
+else:
+    BASE_DIR = Path(__file__).parent
+
+_CONFIG_PATH = BASE_DIR / "config.txt"
 
 if not _CONFIG_PATH.exists():
     raise FileNotFoundError(
@@ -29,6 +42,16 @@ _parser.read(_CONFIG_PATH, encoding="utf-8")
 
 def _get(section, key, fallback=None):
     return _parser.get(section, key, fallback=fallback)
+
+
+def _resolve_path(value):
+    """
+    相対パスをBASE_DIR基準の絶対パスにする。
+    exe化した際、カレントディレクトリ(起動方法によって変わりうる)に依存せず、
+    常にexe自身のフォルダを基準にファイルを探すようにするため。
+    """
+    path = Path(value)
+    return str(path if path.is_absolute() else BASE_DIR / path)
 
 
 # ---------------------------------------------------------------
@@ -67,7 +90,7 @@ DEFECT_TYPE_LOOKBACK_DAYS = _parser.getint("pi", "defect_type_lookback_days", fa
 # ---------------------------------------------------------------
 # Box Developer ConsoleでCustom App(Server Authentication with JWT)を作成し、
 # ダウンロードした設定ファイルをこのパスに配置してください(これもGit管理外)。
-BOX_JWT_CONFIG_FILE = _get("box", "jwt_config_file", fallback="box_jwt_config.json")
+BOX_JWT_CONFIG_FILE = _resolve_path(_get("box", "jwt_config_file", fallback="box_jwt_config.json"))
 
 # 写真が格納されているBoxフォルダのID(フォルダURL末尾の数字)
 BOX_FOLDER_ID = _get("box", "folder_id")
@@ -90,7 +113,7 @@ EXCEL_FILENAME_PATTERN = _get(
 )
 
 # Excel埋め込み写真のキャッシュ保存先(index.json・抽出画像を格納するディレクトリ)
-EXCEL_PHOTO_CACHE_DIR = _get("box", "excel_photo_cache_dir", fallback="cache")
+EXCEL_PHOTO_CACHE_DIR = _resolve_path(_get("box", "excel_photo_cache_dir", fallback="cache"))
 
 # ---------------------------------------------------------------
 # Flask設定
