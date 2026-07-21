@@ -8,6 +8,3 @@ Pillow>=10.0
 
 # テスト用
 pytest>=8.0
-
-# exe化(配布)用。実行には不要、ビルド時のみ必要
-pyinstaller>=6.0

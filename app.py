@@ -1,11 +1,7 @@
 # -*- coding: utf-8 -*-
 """欠点モニタリングダッシュボード バックエンド"""
 import io
-import sys
-import threading
-import webbrowser
 from datetime import datetime
-from pathlib import Path
 
 import pandas as pd
 from flask import Flask, jsonify, request, send_file, render_template
@@ -14,18 +10,7 @@ import config
 import pi_client
 import box_client
 
-# PyInstallerでexe化した場合、templates/staticはsys._MEIPASS(exe内の一時展開先)に
-# 同梱される。通常実行時はこのファイルと同じフォルダを見る。
-if getattr(sys, "frozen", False):
-    _RESOURCE_DIR = Path(sys._MEIPASS)
-else:
-    _RESOURCE_DIR = Path(__file__).parent
-
-app = Flask(
-    __name__,
-    template_folder=str(_RESOURCE_DIR / "templates"),
-    static_folder=str(_RESOURCE_DIR / "static"),
-)
+app = Flask(__name__)
 
 
 def _parse_range():
@@ -135,13 +120,5 @@ def api_photo_thumbnail(file_id):
         return jsonify({"error": str(e)}), 500
 
 
-def _open_browser():
-    webbrowser.open(f"http://127.0.0.1:{config.FLASK_PORT}/")
-
-
 if __name__ == "__main__":
-    # サーバー起動を待ってからブラウザを開く(exe化時に起動直後に自動で開くための対応)
-    threading.Timer(1.0, _open_browser).start()
-    # debug=Trueのリローダーは自身のプロセスを再起動するため、ブラウザが二重に開いてしまう。
-    # exe配布を前提に無効化する(開発時にコード変更を反映したい場合は手動でプロセスを再起動すること)
-    app.run(host=config.FLASK_HOST, port=config.FLASK_PORT, debug=False)
+    app.run(host=config.FLASK_HOST, port=config.FLASK_PORT, debug=True)

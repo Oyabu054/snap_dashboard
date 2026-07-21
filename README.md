@@ -145,46 +145,7 @@ pip install -r requirements.txt   # pytestも含まれます
 pytest
 ```
 
-## 7. exe化して配布する(Python環境が無いPCでも使えるようにする)
-
-`SnapMonitor.spec` を使ってPyInstallerで単一exeにビルドできます。
-起動すると自動でブラウザが開きます(`app.py`の`_open_browser()`)。
-
-### ビルド手順(開発機・Windows)
-
-```powershell
-pip install pyinstaller
-pyinstaller SnapMonitor.spec
-```
-
-`dist\SnapMonitor.exe` が生成されます。
-
-### 配布方法
-
-`dist\SnapMonitor.exe` に加え、以下を**同じフォルダ**に配置して配布してください
-(いずれもexeには含まれていません。機密情報を含むため、コード側で意図的に
-バンドル対象外にしています)。
-
-```
-配布フォルダ/
-├── SnapMonitor.exe
-├── config.txt              # config.txt.exampleを元に実際の値を設定したもの
-└── box_jwt_config.json      # Box連携を使う場合のみ
-```
-
-`config.txt`の`sql_password`等は平文で保存されるため、配布先での取り扱いに注意してください。
-
-### 注意点
-
-- 初回起動はWindows Defender等のウイルス対策ソフトが未署名exeとして警告を出す場合があります
-  (PyInstallerの単一exeは誤検知されやすい傾向があります)。社内配布であれば例外設定等で対応してください
-- `cache/`(Excel写真キャッシュ)フォルダはexeと同じ場所に自動作成されます
-- コンソールウィンドウを非表示にしたい場合は、`SnapMonitor.spec`の`console=True`を`False`に変更して
-  再ビルドしてください(まずはトラブルシューティングしやすいよう表示する設定にしています)
-- テンプレート/静的ファイル(`templates/`・`static/`)はexeに埋め込まれるため、配布時に別途
-  用意する必要はありません
-
-## 8. 今後の実装タスク
+## 7. 今後の実装タスク
 
 現時点で未着手・要対応の項目です。詳細は `CLAUDE.md` の「次のタスク」「既知のリスク」も参照してください。
 
