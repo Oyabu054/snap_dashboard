@@ -12,5 +12,9 @@ venv/
 # キャッシュ(Excel写真抽出用)
 cache/
 
+# PyInstallerのビルド生成物
+build/
+dist/
+
 # Windows/WSL由来の不要ファイル
 *:Zone.Identifier

@@ -222,9 +222,16 @@ UI上の写真パネルは廃止し、左パネル下部に外部Boxフォルダ
    返すエンドポイント、または`get_photos`の戻り値にpathを含める設計変更を検討)
 3. (Box連携再開時)フィルターパネルに「写真を今すぐ同期」ボタン + `POST /api/photos/sync`
    (`excel_photos.sync_cache()`を呼ぶ)追加
-4. 必要ならPyInstallerでのスタンドアロン化(ユーザーは過去にカメラビューアで
-   .specカスタマイズの経験あり。ただしFlaskアプリなので単純なexe化より
-   バッチ起動+ブラウザ自動オープンの方が簡単かもしれない)
+
+**PyInstallerでのexe化(2026-07-21対応済み)**: `SnapMonitor.spec`を用意し単一exe化に対応。
+起動時に自動でブラウザが開く(`app.py`の`_open_browser()`、`threading.Timer`で1秒後に実行、
+`debug=True`のリローダーによる二重起動を避けるため`app.run()`は`debug=False`に変更)。
+`config.py`に`BASE_DIR`(frozen時はexe自身のフォルダ、通常時はこのファイルのフォルダ)を追加し、
+`config.txt`・`BOX_JWT_CONFIG_FILE`・`EXCEL_PHOTO_CACHE_DIR`をこれ基準の絶対パスで解決するよう修正
+(exe化するとカレントディレクトリに依存できないため)。`app.py`のFlaskインスタンスも
+`template_folder`/`static_folder`を`sys._MEIPASS`(frozen時)基準に明示指定。
+ビルド・配布手順は`README.md`の「exe化して配布する」章を参照。
+実際のビルド実行(Windows専用ツールのため)はユーザー側で対応。
 
 ## 開発環境メモ
 
