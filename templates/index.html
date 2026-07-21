@@ -45,6 +45,17 @@
     </div>
 
     <div class="field">
+      <label>表示範囲(絞り込み)</label>
+      <div class="range-slider" id="periodSlider">
+        <div class="range-slider__track"></div>
+        <div class="range-slider__fill" id="periodSliderFill"></div>
+        <input type="range" id="periodSliderMin" min="0" max="1000" value="0">
+        <input type="range" id="periodSliderMax" min="0" max="1000" value="1000">
+      </div>
+      <div class="range-slider__values" id="periodSliderValues">—</div>
+    </div>
+
+    <div class="field">
       <label>欠点種類</label>
       <div id="defectTypeList" class="checkbox-list">
         <span class="muted">読み込み中…</span>

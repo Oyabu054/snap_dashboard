@@ -183,10 +183,8 @@ function renderDefectMap(defects, productPos, types) {
 
   const posMax = window.POSITION_MAX || 210;
   Plotly.react('defectMap', traces, baseLayout({
-    margin: { l: 50, r: 20, t: 10, b: 60 },
     xaxis: {
       tickformat: TIME_TICKFORMAT, nticks: TIME_NTICKS,
-      rangeslider: { visible: true, thickness: 0.08, bgcolor: COLORS.grid },
       gridcolor: COLORS.grid, zerolinecolor: COLORS.grid, color: COLORS.muted,
     },
     yaxis: {
@@ -273,6 +271,72 @@ async function loadPhotos(start, end) {
   }
 }
 
+// =========================================================
+// 期間絞り込みスクロールバー(左パネル)
+// 取得済みデータの再取得はせず、両チャートのx軸表示範囲だけをズームする
+// =========================================================
+const PERIOD_SLIDER_STEPS = 1000;
+let periodSliderRange = null; // { startMs, endMs } 現在適用中の全期間
+
+function formatSliderDate(date) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getMonth() + 1}/${date.getDate()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function sliderStepToDate(step) {
+  const { startMs, endMs } = periodSliderRange;
+  return new Date(startMs + ((endMs - startMs) * step) / PERIOD_SLIDER_STEPS);
+}
+
+function updatePeriodSliderUI() {
+  const minInput = el('periodSliderMin');
+  const maxInput = el('periodSliderMax');
+  const lo = Math.min(Number(minInput.value), Number(maxInput.value));
+  const hi = Math.max(Number(minInput.value), Number(maxInput.value));
+
+  el('periodSliderFill').style.left = `${(lo / PERIOD_SLIDER_STEPS) * 100}%`;
+  el('periodSliderFill').style.width = `${((hi - lo) / PERIOD_SLIDER_STEPS) * 100}%`;
+  el('periodSliderValues').textContent = `${formatSliderDate(sliderStepToDate(lo))} 〜 ${formatSliderDate(sliderStepToDate(hi))}`;
+}
+
+function applyPeriodSliderZoom() {
+  updatePeriodSliderUI();
+  const minInput = el('periodSliderMin');
+  const maxInput = el('periodSliderMax');
+  const lo = Math.min(Number(minInput.value), Number(maxInput.value));
+  const hi = Math.max(Number(minInput.value), Number(maxInput.value));
+  const range = [sliderStepToDate(lo).toISOString(), sliderStepToDate(hi).toISOString()];
+  Plotly.relayout('defectMap', { 'xaxis.range': range });
+  Plotly.relayout('trendChart', { 'xaxis.range': range });
+}
+
+function resetPeriodSlider(startMs, endMs) {
+  periodSliderRange = { startMs, endMs };
+  el('periodSliderMin').value = 0;
+  el('periodSliderMax').value = PERIOD_SLIDER_STEPS;
+  updatePeriodSliderUI();
+}
+
+// 両ハンドルが交差しないよう最低間隔(全体の2%)を確保しつつズームを反映する
+const PERIOD_SLIDER_MIN_GAP = PERIOD_SLIDER_STEPS * 0.02;
+
+function setupPeriodSlider() {
+  const minInput = el('periodSliderMin');
+  const maxInput = el('periodSliderMax');
+  minInput.addEventListener('input', () => {
+    if (Number(minInput.value) > Number(maxInput.value) - PERIOD_SLIDER_MIN_GAP) {
+      minInput.value = Number(maxInput.value) - PERIOD_SLIDER_MIN_GAP;
+    }
+    applyPeriodSliderZoom();
+  });
+  maxInput.addEventListener('input', () => {
+    if (Number(maxInput.value) < Number(minInput.value) + PERIOD_SLIDER_MIN_GAP) {
+      maxInput.value = Number(minInput.value) + PERIOD_SLIDER_MIN_GAP;
+    }
+    applyPeriodSliderZoom();
+  });
+}
+
 async function applyFilter() {
   showError(null);
   const startLocal = el('startInput').value;
@@ -300,6 +364,7 @@ async function applyFilter() {
 
     renderDefectMap(defects, productPos, types);
     renderTrend(defects, types);
+    resetPeriodSlider(new Date(start).getTime(), new Date(end).getTime());
     await loadPhotos(start, end);
 
     el('lastUpdated').textContent = `最終更新 ${new Date().toLocaleTimeString('ja-JP')}`;
@@ -340,6 +405,7 @@ async function init() {
   el('applyFilter').addEventListener('click', applyFilter);
   setupLiveToggle();
   setupQuickRange();
+  setupPeriodSlider();
   applyFilter();
 }
 
