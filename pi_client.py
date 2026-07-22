@@ -58,7 +58,7 @@ ATTR_VACUUM_PRESSURE = "絶対真空圧"
 
 # LOBB位置・失透位置(L側/R側)も同じ要素に記録されている(2026-07-22 AF階層に追加)。
 # スナップマップに常時表示する参照要素で、時系列トレンドには表示しない
-ATTR_LOBB_POSITION = "LOBB位置"
+ATTR_LOBB_POSITION = "LOBB 位置"
 ATTR_DEVITRIFICATION_L = "失透位置 L側"
 ATTR_DEVITRIFICATION_R = "失透位置 R側"
 
