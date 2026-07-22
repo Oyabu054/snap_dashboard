@@ -30,6 +30,25 @@ const REFERENCE_MAP_ELEMENTS = [
 const TIME_TICKFORMAT = '%-m/%-d %H:%M';
 const TIME_NTICKS = 20;
 
+// X軸(時刻)のdtick(目盛り間隔)候補(ミリ秒)。Plotlyの自動tick計算(nticks指定)に
+// 任せると、右側に複数の追加y軸を持つトレンド側と、追加軸を持たないマップ側とで
+// 選ばれるdtickが微妙に食い違うことがあり、表示期間を伸ばすほど2つのグラフの
+// X軸目盛り位置が縦方向にズレて見える不具合があった。両チャートで完全に同じ
+// dtick/tick0を明示指定することで、期間の長さによらず必ず一致させる
+const TICK_CANDIDATES_MS = [
+  60e3, 5 * 60e3, 10 * 60e3, 15 * 60e3, 30 * 60e3,
+  3600e3, 2 * 3600e3, 3 * 3600e3, 6 * 3600e3, 12 * 3600e3,
+  24 * 3600e3, 2 * 24 * 3600e3, 3 * 24 * 3600e3, 7 * 24 * 3600e3,
+  14 * 24 * 3600e3, 30 * 24 * 3600e3,
+];
+
+function computeTimeAxisTicks(startStr, endStr) {
+  const spanMs = new Date(endStr).getTime() - new Date(startStr).getTime();
+  const target = spanMs / TIME_NTICKS;
+  const dtick = TICK_CANDIDATES_MS.find((c) => c >= target) || TICK_CANDIDATES_MS[TICK_CANDIDATES_MS.length - 1];
+  return { dtick, tick0: startStr };
+}
+
 // =========================================================
 // トレンドグラフの重ね描画系列(発生分数の棒グラフに加えて右側に別軸で重ねる系列)。
 // PI AF側に属性が追加されるたびにここへ1件足せば、フィルターUI・データ取得・
@@ -75,6 +94,16 @@ function computeRightMargin(activeSeriesCount) {
   return RIGHT_MARGIN_BASE + RIGHT_MARGIN_PER_AXIS * activeSeriesCount;
 }
 
+// 重ね描画系列(CST回転数・厚み・絶対真空圧など)の凡例を、Plotly自身のグラフ下の凡例
+// ではなく、時間帯別トレンドのタイトル横に表示する(ユーザー指示)
+function updateTrendLegend(activeSeries) {
+  el('trendLegend').innerHTML = activeSeries.map((s) => `
+    <span class="trend-legend__item">
+      <span class="color-swatch" style="background:${s.color}"></span>${s.label}
+    </span>
+  `).join('');
+}
+
 function renderOverlaySeriesCheckboxes() {
   const container = el('overlaySeriesList');
   container.innerHTML = OVERLAY_SERIES.map((s) => `
@@ -95,6 +124,10 @@ let liveTimer = null;
 // 下段トレンドグラフの表示モード。'defects'=既存の発生分数トレンド、'lobb'=LOBB発生個数トレンド
 // (スナップの発生分数とは内容が全く異なるため、重ねずグラフを丸ごと切り替える)
 let trendMode = 'defects';
+
+// 直前の「適用」操作で確定した全期間 [start, end]。マップ/トレンドいずれかを
+// ダブルクリックでズームリセットした際に、この範囲へ戻すために保持する
+let currentFullRange = null;
 
 const el = (id) => document.getElementById(id);
 
@@ -244,7 +277,7 @@ function buildDurationSegments(rows) {
   return { x, y, customdata };
 }
 
-function renderDefectMap(defects, productPos, devitrification, lobbPoints, types, range, margin, showLobb, showDevitrification) {
+function renderDefectMap(defects, productPos, devitrification, lobbPoints, types, range, margin, showLobb, showDevitrification, tickConfig) {
   const colors = typeColorMap();
 
   const traces = types.map((t) => {
@@ -327,7 +360,7 @@ function renderDefectMap(defects, productPos, devitrification, lobbPoints, types
   return Plotly.react('defectMap', traces, baseLayout({
     margin,
     xaxis: {
-      tickformat: TIME_TICKFORMAT, nticks: TIME_NTICKS, range,
+      tickformat: TIME_TICKFORMAT, dtick: tickConfig.dtick, tick0: tickConfig.tick0, range,
       gridcolor: COLORS.grid, zerolinecolor: COLORS.grid, color: COLORS.muted,
     },
     yaxis: {
@@ -365,7 +398,7 @@ function buildHourlyTrendByType(defects) {
 // バーの本数が少ないと「1時間」から幅がズレて見える。明示的に1時間分で固定する。
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
-function renderTrend(defects, types, range, activeSeries, seriesData, recalcAxisRange, rightMargin) {
+function renderTrend(defects, types, range, activeSeries, seriesData, recalcAxisRange, rightMargin, tickConfig) {
   const { hours, buckets } = buildHourlyTrendByType(defects);
   const colors = typeColorMap();
 
@@ -417,13 +450,12 @@ function renderTrend(defects, types, range, activeSeries, seriesData, recalcAxis
   return Plotly.react('trendChart', traces, baseLayout({
     barmode: 'stack',
     margin: { l: 50, r: rightMargin, t: 10, b: 40 },
-    // 発生分数の系列(積み上げ棒)は左パネルのチェックボックスが凡例を兼ねるため非表示のまま、
-    // 重ね描画系列(CST回転数・厚み・絶対真空圧など、フィルターで選択中のもの)だけが
-    // ここでの凡例に表示される
-    showlegend: true,
-    // 上段の欠点マップとX軸(時間)の目盛り位置がずれないよう、同じ表示範囲を明示指定する
+    // 重ね描画系列(CST回転数・厚み・絶対真空圧など)の凡例は、Plotly側ではなく
+    // タイトル横のカスタム凡例(updateTrendLegend)で表示するため、ここでは非表示にする
+    showlegend: false,
+    // 上段の欠点マップとX軸(時間)の目盛り位置がずれないよう、同じ表示範囲・同じdtickを明示指定する
     xaxis: {
-      tickformat: TIME_TICKFORMAT, nticks: TIME_NTICKS, range,
+      tickformat: TIME_TICKFORMAT, dtick: tickConfig.dtick, tick0: tickConfig.tick0, range,
       gridcolor: COLORS.grid, zerolinecolor: COLORS.grid, color: COLORS.muted,
     },
     yaxis: { title: '発生分数 (分/時間)', gridcolor: COLORS.grid, color: COLORS.muted },
@@ -433,7 +465,7 @@ function renderTrend(defects, types, range, activeSeries, seriesData, recalcAxis
 
 // スナップ(欠点)の発生分数トレンドとは内容が全く異なるため、既存のトレンドに重ねず
 // グラフを丸ごと切り替えて表示する(左パネル上部のタブで切り替え)
-function renderLobbTrend(lobbHourlyCount, range, rightMargin) {
+function renderLobbTrend(lobbHourlyCount, range, rightMargin, tickConfig) {
   const trace = {
     x: lobbHourlyCount.map((d) => d.hour),
     y: lobbHourlyCount.map((d) => d.count),
@@ -447,9 +479,9 @@ function renderLobbTrend(lobbHourlyCount, range, rightMargin) {
   return Plotly.react('trendChart', [trace], baseLayout({
     margin: { l: 50, r: rightMargin, t: 10, b: 40 },
     showlegend: false,
-    // 上段の欠点マップとX軸(時間)の目盛り位置がずれないよう、同じ表示範囲を明示指定する
+    // 上段の欠点マップとX軸(時間)の目盛り位置がずれないよう、同じ表示範囲・同じdtickを明示指定する
     xaxis: {
-      tickformat: TIME_TICKFORMAT, nticks: TIME_NTICKS, range,
+      tickformat: TIME_TICKFORMAT, dtick: tickConfig.dtick, tick0: tickConfig.tick0, range,
       gridcolor: COLORS.grid, zerolinecolor: COLORS.grid, color: COLORS.muted,
     },
     yaxis: { title: '発生個数 (件/時間)', gridcolor: COLORS.grid, color: COLORS.muted },
@@ -491,8 +523,13 @@ function applyPeriodSliderZoom() {
   const lo = Math.min(Number(minInput.value), Number(maxInput.value));
   const hi = Math.max(Number(minInput.value), Number(maxInput.value));
   const range = [toLocalISOString(sliderStepToDate(lo)), toLocalISOString(sliderStepToDate(hi))];
-  Plotly.relayout('defectMap', { 'xaxis.range': range });
-  Plotly.relayout('trendChart', { 'xaxis.range': range });
+  // このスライダー操作自体が両チャートを直接同期させるため、setupChartZoomSync()の
+  // ドラッグズーム相互追従ハンドラが二重に反応しないようガードする
+  isSyncingZoom = true;
+  Promise.all([
+    Plotly.relayout('defectMap', { 'xaxis.range': range }),
+    Plotly.relayout('trendChart', { 'xaxis.range': range }),
+  ]).finally(() => { isSyncingZoom = false; });
 }
 
 function resetPeriodSlider(startMs, endMs) {
@@ -520,6 +557,67 @@ function setupPeriodSlider() {
     }
     applyPeriodSliderZoom();
   });
+}
+
+// =========================================================
+// マップ⇔トレンドのドラッグズーム相互追従
+// 一方のチャートをドラッグでズーム(またはダブルクリックで解除)すると、
+// もう一方のチャートのX軸表示範囲も同じ範囲に追従させる(双方向)
+// =========================================================
+let isSyncingZoom = false;
+
+// Plotlyのrelayoutイベントが返す日時は "YYYY-MM-DD HH:MM:SS.ssss" 形式
+// (タイムゾーン情報なしのローカル時刻文字列)のことがあり、そのままでは
+// Dateコンストラクタの解釈が環境依存になるため、'T'区切りに正規化してから渡す
+function parseAnyDate(v) {
+  if (typeof v === 'number') return new Date(v);
+  return new Date(String(v).replace(' ', 'T'));
+}
+
+function updatePeriodSliderFromRange(range) {
+  if (!periodSliderRange) return;
+  const { startMs, endMs } = periodSliderRange;
+  const totalMs = endMs - startMs;
+  if (totalMs <= 0) return;
+  const toStep = (v) => {
+    const ms = parseAnyDate(v).getTime();
+    const clamped = Math.min(Math.max(ms, startMs), endMs);
+    return ((clamped - startMs) / totalMs) * PERIOD_SLIDER_STEPS;
+  };
+  el('periodSliderMin').value = toStep(range[0]);
+  el('periodSliderMax').value = toStep(range[1]);
+  updatePeriodSliderUI();
+}
+
+function setupChartZoomSync() {
+  const mapDiv = el('defectMap');
+  const trendDiv = el('trendChart');
+
+  function handleRelayout(targetDiv) {
+    return (eventData) => {
+      if (isSyncingZoom) return;
+
+      let newRange = null;
+      if (eventData['xaxis.range[0]'] !== undefined && eventData['xaxis.range[1]'] !== undefined) {
+        newRange = [eventData['xaxis.range[0]'], eventData['xaxis.range[1]']];
+      } else if (eventData['xaxis.range']) {
+        newRange = eventData['xaxis.range'];
+      } else if (eventData['xaxis.autorange']) {
+        // ダブルクリックでのズーム解除。直前「適用」時点の全期間表示に戻す
+        newRange = currentFullRange;
+      } else {
+        return;
+      }
+      if (!newRange) return;
+
+      isSyncingZoom = true;
+      Plotly.relayout(targetDiv, { 'xaxis.range': newRange }).finally(() => { isSyncingZoom = false; });
+      updatePeriodSliderFromRange(newRange);
+    };
+  }
+
+  mapDiv.on('plotly_relayout', handleRelayout(trendDiv));
+  trendDiv.on('plotly_relayout', handleRelayout(mapDiv));
 }
 
 async function applyFilter(recalcAxisRange = true) {
@@ -582,20 +680,24 @@ async function applyFilter(recalcAxisRange = true) {
     activeSeries.forEach((s, idx) => { seriesData[s.key] = overlayResults[idx].data; });
 
     const range = [start, end];
+    currentFullRange = range;
+    const tickConfig = computeTimeAxisTicks(start, end);
     const rightMargin = computeRightMargin(activeSeries.length);
+    updateTrendLegend(activeSeries);
     // トレンド側の右軸(CST回転数・厚み・絶対真空圧)はPlotlyのautoshiftで自動配置されるため、
     // 指定したmargin.rの通りに描画されるとは限らない。先にトレンドを描画し、実際に確定した
     // 余白(_fullLayout.margin)を読み取ってスナップマップ側にそのまま適用することで、
     // 2つの独立したチャート間でもプロット領域の幅を厳密に一致させ、X軸(時刻)の
     // 縦方向のズレを防ぐ
     if (trendMode === 'lobb') {
-      await renderLobbTrend(lobbHourlyCount, range, rightMargin);
+      await renderLobbTrend(lobbHourlyCount, range, rightMargin, tickConfig);
     } else {
-      await renderTrend(defects, types, range, activeSeries, seriesData, recalcAxisRange, rightMargin);
+      await renderTrend(defects, types, range, activeSeries, seriesData, recalcAxisRange, rightMargin, tickConfig);
     }
     const resolvedMargin = el('trendChart')._fullLayout.margin;
     renderDefectMap(
-      defects, productPos, devitrification, lobbPoints, types, range, resolvedMargin, showLobb, showDevitrification,
+      defects, productPos, devitrification, lobbPoints, types, range, resolvedMargin,
+      showLobb, showDevitrification, tickConfig,
     );
     resetPeriodSlider(new Date(start).getTime(), new Date(end).getTime());
 
@@ -636,24 +738,9 @@ function setupLiveToggle() {
   });
 }
 
-function setupQuickRange() {
-  document.querySelectorAll('.btn-quick').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      setDefaultRange(Number(btn.dataset.hours));
-      applyFilter();
-    });
-  });
-}
-
-const TREND_SUBTITLES = {
-  defects: '1時間ごとの発生分数 / 左パネルで選択した要素を重ね描画',
-  lobb: '1時間ごとのLOBB検知回数',
-};
-
 function updateTrendTabsUI() {
   el('trendTabDefects').classList.toggle('active', trendMode === 'defects');
   el('trendTabLobb').classList.toggle('active', trendMode === 'lobb');
-  el('trendSubtitle').textContent = TREND_SUBTITLES[trendMode];
 }
 
 function setupTrendTabs() {
@@ -677,11 +764,11 @@ async function init() {
   renderOverlaySeriesCheckboxes();
   el('applyFilter').addEventListener('click', () => applyFilter(true));
   setupLiveToggle();
-  setupQuickRange();
   setupPeriodSlider();
   setupTypeSelectButtons();
   setupTrendTabs();
   await applyFilter();
+  setupChartZoomSync();
   // リアルタイム更新はデフォルトON(index.htmlのliveToggleにchecked指定)。
   // HTMLのchecked属性だけではchangeイベントが発火しないため、ここで明示的に開始する
   if (el('liveToggle').checked) {

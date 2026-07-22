@@ -140,13 +140,6 @@ body {
   align-items: baseline;
   gap: 8px;
 }
-.panel__sub {
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: normal;
-  color: var(--muted-dim);
-  font-size: 11px;
-}
 
 /* --- フィルターパネル --- */
 .field { margin-bottom: 16px; }
@@ -299,29 +292,6 @@ body {
 }
 .btn-primary:hover { background: #b8650a; }
 
-.quick-range {
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-}
-.quick-range__label {
-  display: block;
-  font-size: 11px;
-  color: var(--muted-dim);
-  margin-bottom: 8px;
-}
-.btn-quick {
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--muted);
-  font-size: 11.5px;
-  padding: 5px 9px;
-  margin: 0 6px 6px 0;
-  border-radius: var(--radius);
-  cursor: pointer;
-}
-.btn-quick:hover { border-color: var(--accent2); color: var(--accent2); }
-
 .error-box {
   margin-top: 16px;
   padding: 10px;
@@ -342,8 +312,11 @@ body {
   flex-direction: column;
   box-shadow: 0 1px 3px rgba(16, 24, 40, 0.04);
 }
-.chart-block--map { flex: 1; }
-.chart-block--trend { flex: 1.1; }
+/* トレンドの高さを元の2/3に圧縮し、浮いた分をすべてマップに割り当てる
+   (合計flex値は元の1:1.1(=2.1)のまま、トレンド側の取り分だけ2/3に): 1.1*(2/3)≒0.733、
+   マップ側はその差分(1.1-0.733)を元の1に加算した1.367 */
+.chart-block--map { flex: 1.367; }
+.chart-block--trend { flex: 0.733; }
 .chart { flex: 1; width: 100%; min-height: 0; }
 
 .chart-block__header {
@@ -355,6 +328,20 @@ body {
   margin-bottom: 10px;
 }
 .chart-block__header .panel__title { margin-bottom: 0; }
+
+.trend-legend {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-left: 4px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 11px;
+  color: var(--muted-dim);
+}
+.trend-legend__item { display: inline-flex; align-items: center; gap: 4px; }
 
 .trend-tabs { display: flex; gap: 6px; }
 .btn-tab {

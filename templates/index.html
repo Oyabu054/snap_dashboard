@@ -76,14 +76,6 @@
 
     <button id="applyFilter" class="btn-primary">適用</button>
 
-    <div class="quick-range">
-      <span class="quick-range__label">クイック選択</span>
-      <button class="btn-quick" data-hours="1">1時間</button>
-      <button class="btn-quick" data-hours="8">8時間</button>
-      <button class="btn-quick" data-hours="24">24時間</button>
-      <button class="btn-quick" data-hours="168">7日間</button>
-    </div>
-
     <div id="errorBox" class="error-box" hidden></div>
 
     <div class="box-link-section">
@@ -96,12 +88,11 @@
   <!-- 中央: スナップマップ + トレンド -->
   <main class="panel center-panel">
     <div class="chart-block chart-block--map">
-      <h2 class="panel__title">スナップマップ<span class="panel__sub">位置 × 時刻(上:左 / 下:右)</span></h2>
       <div id="defectMap" class="chart"></div>
     </div>
     <div class="chart-block chart-block--trend">
       <div class="chart-block__header">
-        <h2 class="panel__title">時間帯別トレンド<span class="panel__sub" id="trendSubtitle">1時間ごとの発生分数 / 左パネルで選択した要素を重ね描画</span></h2>
+        <h2 class="panel__title">時間帯別トレンド<span class="trend-legend" id="trendLegend"></span></h2>
         <div class="trend-tabs">
           <button type="button" id="trendTabDefects" class="btn-tab active">発生分数</button>
           <button type="button" id="trendTabLobb" class="btn-tab">LOBB発生個数</button>
