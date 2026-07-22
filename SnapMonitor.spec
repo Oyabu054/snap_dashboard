@@ -13,9 +13,9 @@ SnapMonitor.exe と同じフォルダに配置すること。
 """
 from PyInstaller.utils.hooks import collect_submodules
 
-# pymssql/boxsdkはコンパイル済み拡張のサブモジュールをPyInstallerの静的解析だけでは
-# 検出しきれないことがあるため、明示的に収集する
-hiddenimports = collect_submodules("pymssql") + collect_submodules("boxsdk")
+# pymssql/boxsdk/waitressはコンパイル済み拡張・動的インポートを含むため、
+# PyInstallerの静的解析だけでは検出しきれないことがある。明示的に収集する
+hiddenimports = collect_submodules("pymssql") + collect_submodules("boxsdk") + collect_submodules("waitress")
 
 a = Analysis(
     ["app.py"],

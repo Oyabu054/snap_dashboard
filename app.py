@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 from flask import Flask, jsonify, request, send_file, render_template
+from waitress import serve
 
 import config
 import pi_client
@@ -226,8 +227,8 @@ def _open_browser():
 if __name__ == "__main__":
     # サーバー起動を待ってからブラウザを開く(exe化時に起動直後に自動で開くための対応)
     threading.Timer(1.0, _open_browser).start()
-    # debug=Trueのリローダーは自身のプロセスを再起動するため、ブラウザが二重に開いてしまう。
-    # exe配布を前提に無効化する(開発時にコード変更を反映したい場合は手動でプロセスを再起動すること)
-    # threaded=True: 1回のapplyFilter()操作で最大8並列のAPIリクエストが飛ぶため、
-    # デフォルト(シングルスレッド)のままだとサーバー側で直列処理されて遅くなる(2026-07-22追加)
-    app.run(host=config.FLASK_HOST, port=config.FLASK_PORT, debug=False, threaded=True)
+    # 本番向けWSGIサーバー(waitress)で起動(2026-07-22変更)。Flask開発用サーバーは
+    # 公式に本番利用が非推奨なため、長時間稼働・複数PCからの同時アクセスに対して
+    # より安定なwaitressのスレッドプール実装に切り替えた。threadsは複数PC(最大5台)
+    # +1回の操作で最大8並列APIリクエストが飛ぶことを踏まえた目安値。
+    serve(app, host=config.FLASK_HOST, port=config.FLASK_PORT, threads=8)
