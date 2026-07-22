@@ -10,28 +10,52 @@ const COLORS = {
   accent: '#d97706',
   accent2: '#0e7490',
   critical: '#b91c1c',
-  // CST回転数・厚み(トレンドグラフの重ね描画系列)。既存8色パレットと合わせて
-  // dataviz skillのvalidate_palette.jsでCVD安全性を確認済み(衝突なし)
-  cstRotation: '#0891b2',
-  thickness: '#a16207',
 };
 
 // 欠点種類ごとの識別色(固定順・カラーユニバーサルデザイン検証済み)
 const PALETTE = ['#2a78d6', '#008300', '#e87ba4', '#eda100', '#1baf7a', '#eb6834', '#4a3aa7', '#e34948'];
 
+// LOBB位置(線)・失透(点)の色。既存パレットとの衝突なしをdataviz skillで検証済み
+const LOBB_COLOR = '#1e3a8a';
+const DEVITRIFICATION_COLOR = '#65a30d';
+
+// スナップ・欠点種類リスト(#defectTypeList)のうち、PIの実際の欠点種類ではなく
+// マップの表示/非表示だけを切り替える参照要素(LOBB位置・失透)のラベル
+const REFERENCE_MAP_ELEMENTS = [
+  { label: 'LOBB', color: LOBB_COLOR },
+  { label: '失透', color: DEVITRIFICATION_COLOR },
+];
+
 // X軸(日時)の表示フォーマット・目盛り密度(共通)
 const TIME_TICKFORMAT = '%-m/%-d %H:%M';
 const TIME_NTICKS = 20;
 
-// CST回転数・厚みの軸レンジ計算パラメータ(ユーザー指定: 取得値の最小/最大を四捨五入し、
-// それぞれ外側にこの分だけ余白を持たせる。CST回転数は物理的な上限26でキャップする)
-const CST_ROTATION_AXIS_PAD = 3;
-const CST_ROTATION_AXIS_MAX = 26;
-const THICKNESS_AXIS_PAD = 1;
+// =========================================================
+// トレンドグラフの重ね描画系列(発生分数の棒グラフに加えて右側に別軸で重ねる系列)。
+// PI AF側に属性が追加されるたびにここへ1件足せば、フィルターUI・データ取得・
+// 軸/トレース描画すべてに反映される(既存8色パレット+この配列の色は
+// dataviz skillのvalidate_palette.jsでCVD安全性を確認済み・衝突なし)。
+// pad/capMax: 軸レンジは表示期間内の実データの最小/最大値を四捨五入し、
+// そこからpad分だけ外側にパディングする(capMaxがあれば上限をそこでキャップ)
+// =========================================================
+const OVERLAY_SERIES = [
+  {
+    key: 'cstRotation', label: 'CST回転数', unit: 'rpm', color: '#0891b2', dash: undefined,
+    valueFormat: '.1f', endpoint: '/api/cst_rotation_trend', pad: 3, capMax: 26,
+  },
+  {
+    key: 'thickness', label: '厚み', unit: 'mm', color: '#a16207', dash: 'dash',
+    valueFormat: '.2f', endpoint: '/api/thickness_trend', pad: 1, capMax: null,
+  },
+  {
+    key: 'vacuumPressure', label: '絶対真空圧', unit: 'mmHg', color: '#be185d', dash: 'dot',
+    valueFormat: '.1f', endpoint: '/api/vacuum_pressure_trend', pad: 3, capMax: null,
+  },
+];
 
-// 軸レンジは「適用」操作時のみ再計算し、リアルタイム更新中は固定する(ユーザー指示)
-let cstRotationAxisRange = null;
-let thicknessAxisRange = null;
+// 軸レンジは「適用」操作時のみ再計算し、リアルタイム更新中は固定する(ユーザー指示)。
+// キー: OVERLAY_SERIESのkey、値: [min, max]
+let overlayAxisRanges = {};
 
 function roundedAxisRange(values, pad, capMax) {
   if (!values.length) return null;
@@ -41,13 +65,52 @@ function roundedAxisRange(values, pad, capMax) {
   return [minV - pad, hi];
 }
 
+// トレンドグラフ右側の追加軸1本あたりの余白見込み(px)。スナップマップ側は
+// この軸を使わないが、両チャートのプロット領域幅を揃えて縦方向のX軸(時刻)位置を
+// 一致させるため、活性化している系列数に応じて両チャートに同じ右余白を指定する
+const RIGHT_MARGIN_BASE = 20;
+const RIGHT_MARGIN_PER_AXIS = 45;
+
+function computeRightMargin(activeSeriesCount) {
+  return RIGHT_MARGIN_BASE + RIGHT_MARGIN_PER_AXIS * activeSeriesCount;
+}
+
+function renderOverlaySeriesCheckboxes() {
+  const container = el('overlaySeriesList');
+  container.innerHTML = OVERLAY_SERIES.map((s) => `
+    <label>
+      <input type="checkbox" value="${s.key}" checked>
+      <span class="color-swatch" style="background:${s.color}"></span>
+      ${s.label}
+    </label>
+  `).join('');
+}
+
+function getSelectedOverlaySeriesKeys() {
+  return Array.from(document.querySelectorAll('#overlaySeriesList input:checked')).map((c) => c.value);
+}
+
 let liveTimer = null;
+
+// 下段トレンドグラフの表示モード。'defects'=既存の発生分数トレンド、'lobb'=LOBB発生個数トレンド
+// (スナップの発生分数とは内容が全く異なるため、重ねずグラフを丸ごと切り替える)
+let trendMode = 'defects';
 
 const el = (id) => document.getElementById(id);
 
 function toLocalInputValue(date) {
   const pad = (n) => String(n).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+// Dateオブジェクトをタイムゾーン情報のないローカル時刻の文字列にする(toISOString()は
+// UTCに変換してしまい、PlotlyがそれをUTCとして解釈して9時間ズレて表示されるため使わない。
+// APIから返ってくる発生時刻もタイムゾーン情報のないローカル時刻文字列なので、
+// Plotlyに渡すすべての日時をこの形式で統一する)
+function toLocalISOString(date) {
+  const pad = (n, len = 2) => String(n).padStart(len, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+    + `T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
 }
 
 function setDefaultRange(hours = 24) {
@@ -77,29 +140,47 @@ async function fetchJSON(url) {
   return data;
 }
 
+function referenceMapElementCheckboxesHTML() {
+  // LOBB位置・失透: PIの欠点種類ではなく、マップの表示/非表示だけを切り替える参照要素。
+  // data-kind="reference" で実際の欠点種類と区別する
+  return REFERENCE_MAP_ELEMENTS.map(({ label, color }) => `
+    <label>
+      <input type="checkbox" value="${label}" checked data-color="${color}" data-kind="reference">
+      <span class="color-swatch" style="background:${color}"></span>
+      ${label}
+    </label>
+  `).join('');
+}
+
 async function loadDefectTypes() {
   const container = el('defectTypeList');
   try {
     const { defect_types } = await fetchJSON('/api/defect_types');
-    if (!defect_types.length) {
-      container.innerHTML = '<span class="muted">種類が見つかりません</span>';
-      return;
-    }
-    container.innerHTML = defect_types.map((t, i) => `
+    const defectTypeHTML = defect_types.map((t, i) => `
       <label>
         <input type="checkbox" value="${t}" checked data-color="${PALETTE[i % PALETTE.length]}">
         <span class="color-swatch" style="background:${PALETTE[i % PALETTE.length]}"></span>
         ${t}
       </label>
     `).join('');
+    container.innerHTML = defectTypeHTML + referenceMapElementCheckboxesHTML();
   } catch (e) {
-    container.innerHTML = '<span class="muted">読み込みに失敗しました</span>';
+    // 欠点種類の取得に失敗しても、LOBB位置・失透のチェックボックスは表示する
+    container.innerHTML = referenceMapElementCheckboxesHTML();
     showError(e.message);
   }
 }
 
 function getSelectedTypes() {
-  return Array.from(document.querySelectorAll('#defectTypeList input:checked')).map((c) => c.value);
+  // LOBB位置・失透(data-kind="reference")はPIの欠点種類ではないため、
+  // /api/defectsへのtypeフィルターや欠点マップ/トレンドの種類別トレース生成には含めない
+  return Array.from(document.querySelectorAll('#defectTypeList input:checked:not([data-kind="reference"])'))
+    .map((c) => c.value);
+}
+
+function isReferenceMapElementSelected(label) {
+  const checkbox = document.querySelector(`#defectTypeList input[data-kind="reference"][value="${label}"]`);
+  return checkbox ? checkbox.checked : false;
 }
 
 function setupTypeSelectButtons() {
@@ -124,10 +205,9 @@ function baseLayout(extra = {}) {
     paper_bgcolor: COLORS.bg,
     plot_bgcolor: COLORS.bg,
     font: { color: COLORS.text, family: 'IBM Plex Sans JP, sans-serif', size: 11 },
-    // r(右余白)はトレンドグラフのCST回転数・厚み用の追加軸2本分を確保した値。
-    // スナップマップ側は使わないが、両チャートのプロット領域幅を揃えて縦方向の
-    // X軸(時刻)位置を一致させるため、同じ値をここで共通指定している
-    margin: { l: 50, r: 110, t: 10, b: 40 },
+    // r(右余白)は呼び出し側(applyFilter)がcomputeRightMargin()で活性化中の
+    // 重ね描画系列数から計算し、両チャートに同じ値を明示指定して上書きする
+    margin: { l: 50, r: 20, t: 10, b: 40 },
     xaxis: {
       tickformat: TIME_TICKFORMAT, nticks: TIME_NTICKS,
       gridcolor: COLORS.grid, zerolinecolor: COLORS.grid, color: COLORS.muted,
@@ -156,7 +236,7 @@ function buildDurationSegments(rows) {
     const endMs = startMs + durationMin * 60000;
     const label = r.duration_minutes != null ? `${r.duration_minutes.toFixed(1)}分` : '—';
 
-    x.push(new Date(startMs).toISOString(), new Date(endMs).toISOString(), null);
+    x.push(toLocalISOString(new Date(startMs)), toLocalISOString(new Date(endMs)), null);
     y.push(r.position, r.position, null);
     customdata.push(label, label, null);
   });
@@ -164,7 +244,7 @@ function buildDurationSegments(rows) {
   return { x, y, customdata };
 }
 
-function renderDefectMap(defects, productPos, types, range) {
+function renderDefectMap(defects, productPos, devitrification, lobbPoints, types, range, margin, showLobb, showDevitrification) {
   const colors = typeColorMap();
 
   const traces = types.map((t) => {
@@ -175,7 +255,7 @@ function renderDefectMap(defects, productPos, types, range) {
       y: seg.y,
       customdata: seg.customdata,
       mode: 'lines+markers',
-      type: 'scatter',
+      type: 'scattergl',
       name: t,
       // 欠点種類の凡例は左のチェックボックス(色スウォッチ付き)が兼ねるため、
       // 種類数が増えてもグラフ側の凡例が横に溢れて見切れないようにここでは非表示にする
@@ -193,30 +273,59 @@ function renderDefectMap(defects, productPos, types, range) {
   traces.push({
     x: productPos.map((p) => p.timestamp),
     y: productPos.map((p) => p.gross_end),
-    mode: 'lines', type: 'scatter', name: 'Gross幅', legendgroup: 'gross',
-    line: { color: GROSS_COLOR, width: 1 }, hoverinfo: 'skip',
+    mode: 'lines', type: 'scattergl', name: 'Gross幅', legendgroup: 'gross',
+    line: { color: GROSS_COLOR, width: 1 },
+    hovertemplate: `<b>Gross終了位置</b><br>%{x|${TIME_TICKFORMAT}}<br>位置: %{y:.1f}<extra></extra>`,
   });
   traces.push({
     x: productPos.map((p) => p.timestamp),
     y: productPos.map((p) => p.gross_start),
-    mode: 'lines', type: 'scatter', name: 'Gross幅', legendgroup: 'gross',
-    line: { color: GROSS_COLOR, width: 1 }, hoverinfo: 'skip', showlegend: false,
+    mode: 'lines', type: 'scattergl', name: 'Gross幅', legendgroup: 'gross',
+    line: { color: GROSS_COLOR, width: 1 }, showlegend: false,
+    hovertemplate: `<b>Gross開始位置</b><br>%{x|${TIME_TICKFORMAT}}<br>位置: %{y:.1f}<extra></extra>`,
   });
   traces.push({
     x: productPos.map((p) => p.timestamp),
     y: productPos.map((p) => p.net_end),
-    mode: 'lines', type: 'scatter', name: 'Net幅', legendgroup: 'net',
-    line: { color: NET_COLOR, width: 1.3, dash: 'dot' }, hoverinfo: 'skip',
+    mode: 'lines', type: 'scattergl', name: 'Net幅', legendgroup: 'net',
+    line: { color: NET_COLOR, width: 1.3, dash: 'dot' },
+    hovertemplate: `<b>Net終了位置</b><br>%{x|${TIME_TICKFORMAT}}<br>位置: %{y:.1f}<extra></extra>`,
   });
   traces.push({
     x: productPos.map((p) => p.timestamp),
     y: productPos.map((p) => p.net_start),
-    mode: 'lines', type: 'scatter', name: 'Net幅', legendgroup: 'net',
-    line: { color: NET_COLOR, width: 1.3, dash: 'dot' }, hoverinfo: 'skip', showlegend: false,
+    mode: 'lines', type: 'scattergl', name: 'Net幅', legendgroup: 'net',
+    line: { color: NET_COLOR, width: 1.3, dash: 'dot' }, showlegend: false,
+    hovertemplate: `<b>Net開始位置</b><br>%{x|${TIME_TICKFORMAT}}<br>位置: %{y:.1f}<extra></extra>`,
   });
 
+  // LOBB・失透(いずれも点、L側/R側を区別しない失透は1系列にまとめている)は、左パネルの
+  // 「スナップ・欠点種類」リストのチェック状態(showLobb/showDevitrification)で
+  // 表示/非表示を切り替える(Gross/Netと違い常時表示ではない)。
+  // どちらもGross/Netのように連続サンプリングされる値ではなく、実機確認では
+  // 非常にまばらなデータのため、線ではなく点として独立に取得・描画する
+  if (showLobb) {
+    traces.push({
+      x: lobbPoints.map((p) => p.timestamp),
+      y: lobbPoints.map((p) => p.position),
+      mode: 'markers', type: 'scattergl', name: 'LOBB',
+      marker: { color: LOBB_COLOR, size: 7 },
+      hovertemplate: `<b>LOBB</b><br>%{x|${TIME_TICKFORMAT}}<br>位置: %{y:.1f}<extra></extra>`,
+    });
+  }
+  if (showDevitrification) {
+    traces.push({
+      x: devitrification.map((d) => d.timestamp),
+      y: devitrification.map((d) => d.position),
+      mode: 'markers', type: 'scattergl', name: '失透',
+      marker: { color: DEVITRIFICATION_COLOR, size: 6 },
+      hovertemplate: `<b>失透</b><br>%{x|${TIME_TICKFORMAT}}<br>位置: %{y:.1f}<extra></extra>`,
+    });
+  }
+
   const posMax = window.POSITION_MAX || 210;
-  Plotly.react('defectMap', traces, baseLayout({
+  return Plotly.react('defectMap', traces, baseLayout({
+    margin,
     xaxis: {
       tickformat: TIME_TICKFORMAT, nticks: TIME_NTICKS, range,
       gridcolor: COLORS.grid, zerolinecolor: COLORS.grid, color: COLORS.muted,
@@ -243,7 +352,7 @@ function buildHourlyTrendByType(defects) {
   defects.forEach((d) => {
     const dt = new Date(d.timestamp);
     dt.setMinutes(0, 0, 0);
-    const hourKey = dt.toISOString();
+    const hourKey = toLocalISOString(dt);
     const typeMap = buckets[hourKey] || (buckets[hourKey] = {});
     const minutes = d.duration_minutes || 0;
     typeMap[d.defect_type] = (typeMap[d.defect_type] || 0) + minutes;
@@ -256,7 +365,7 @@ function buildHourlyTrendByType(defects) {
 // バーの本数が少ないと「1時間」から幅がズレて見える。明示的に1時間分で固定する。
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
-function renderTrend(defects, types, range, cstRotation, thickness, recalcAxisRange) {
+function renderTrend(defects, types, range, activeSeries, seriesData, recalcAxisRange, rightMargin) {
   const { hours, buckets } = buildHourlyTrendByType(defects);
   const colors = typeColorMap();
 
@@ -272,42 +381,45 @@ function renderTrend(defects, types, range, cstRotation, thickness, recalcAxisRa
     hovertemplate: `<b>${t}</b><br>%{x|${TIME_TICKFORMAT}}<br>発生分数: %{y:.1f}分<extra></extra>`,
   }));
 
-  // 軸レンジは「適用」操作時のみ再計算し、リアルタイム更新中(recalcAxisRange=false)は
-  // 前回の確定値を使い回す。データが空の回は前回値をそのまま維持する
-  if (recalcAxisRange) {
-    cstRotationAxisRange = roundedAxisRange(
-      cstRotation.map((d) => d.value), CST_ROTATION_AXIS_PAD, CST_ROTATION_AXIS_MAX,
-    ) || cstRotationAxisRange;
-    thicknessAxisRange = roundedAxisRange(
-      thickness.map((d) => d.value), THICKNESS_AXIS_PAD,
-    ) || thicknessAxisRange;
-  }
+  const overlayYaxis = {};
+  activeSeries.forEach((s, i) => {
+    const values = seriesData[s.key].map((d) => d.value);
 
-  traces.push({
-    x: cstRotation.map((d) => d.timestamp),
-    y: cstRotation.map((d) => d.value),
-    type: 'scatter',
-    mode: 'lines',
-    name: 'CST回転数',
-    yaxis: 'y2',
-    line: { color: COLORS.cstRotation, width: 2 },
-    hovertemplate: `<b>CST回転数</b><br>%{x|${TIME_TICKFORMAT}}<br>%{y:.1f} rpm<extra></extra>`,
-  });
-  traces.push({
-    x: thickness.map((d) => d.timestamp),
-    y: thickness.map((d) => d.value),
-    type: 'scatter',
-    mode: 'lines',
-    name: '厚み',
-    yaxis: 'y3',
-    line: { color: COLORS.thickness, width: 2, dash: 'dash' },
-    hovertemplate: `<b>厚み</b><br>%{x|${TIME_TICKFORMAT}}<br>%{y:.2f} mm<extra></extra>`,
+    // 軸レンジは「適用」操作時のみ再計算し、リアルタイム更新中(recalcAxisRange=false)は
+    // 前回の確定値を使い回す。データが空の回は前回値をそのまま維持する
+    if (recalcAxisRange) {
+      overlayAxisRanges[s.key] = roundedAxisRange(values, s.pad, s.capMax) || overlayAxisRanges[s.key];
+    }
+
+    const axisNum = i + 2; // 主軸(発生分数)がy1なので、重ね系列はy2から
+    traces.push({
+      x: seriesData[s.key].map((d) => d.timestamp),
+      y: seriesData[s.key].map((d) => d.value),
+      type: 'scattergl',
+      mode: 'lines',
+      name: s.label,
+      yaxis: `y${axisNum}`,
+      line: { color: s.color, width: 2, dash: s.dash },
+      hovertemplate: `<b>${s.label}</b><br>%{x|${TIME_TICKFORMAT}}<br>%{y:${s.valueFormat}} ${s.unit}<extra></extra>`,
+    });
+
+    overlayYaxis[`yaxis${axisNum}`] = {
+      title: `${s.label} (${s.unit})`,
+      overlaying: 'y',
+      side: 'right',
+      range: overlayAxisRanges[s.key] || undefined,
+      showgrid: false, zeroline: false, color: s.color,
+      // 2本目以降の追加軸はプロット領域の外側へ自動でずらして重なりを防ぐ
+      ...(i > 0 ? { anchor: 'free', autoshift: true } : {}),
+    };
   });
 
-  Plotly.react('trendChart', traces, baseLayout({
+  return Plotly.react('trendChart', traces, baseLayout({
     barmode: 'stack',
+    margin: { l: 50, r: rightMargin, t: 10, b: 40 },
     // 発生分数の系列(積み上げ棒)は左パネルのチェックボックスが凡例を兼ねるため非表示のまま、
-    // CST回転数・厚み(上記2トレース)だけがここでの凡例に表示される
+    // 重ね描画系列(CST回転数・厚み・絶対真空圧など、フィルターで選択中のもの)だけが
+    // ここでの凡例に表示される
     showlegend: true,
     // 上段の欠点マップとX軸(時間)の目盛り位置がずれないよう、同じ表示範囲を明示指定する
     xaxis: {
@@ -315,16 +427,32 @@ function renderTrend(defects, types, range, cstRotation, thickness, recalcAxisRa
       gridcolor: COLORS.grid, zerolinecolor: COLORS.grid, color: COLORS.muted,
     },
     yaxis: { title: '発生分数 (分/時間)', gridcolor: COLORS.grid, color: COLORS.muted },
-    yaxis2: {
-      title: 'CST回転数 (rpm)', overlaying: 'y', side: 'right',
-      range: cstRotationAxisRange || undefined,
-      showgrid: false, zeroline: false, color: COLORS.cstRotation,
+    ...overlayYaxis,
+  }), { responsive: true, displayModeBar: false });
+}
+
+// スナップ(欠点)の発生分数トレンドとは内容が全く異なるため、既存のトレンドに重ねず
+// グラフを丸ごと切り替えて表示する(左パネル上部のタブで切り替え)
+function renderLobbTrend(lobbHourlyCount, range, rightMargin) {
+  const trace = {
+    x: lobbHourlyCount.map((d) => d.hour),
+    y: lobbHourlyCount.map((d) => d.count),
+    type: 'bar',
+    width: ONE_HOUR_MS,
+    name: 'LOBB発生個数',
+    marker: { color: LOBB_COLOR },
+    hovertemplate: `<b>LOBB</b><br>%{x|${TIME_TICKFORMAT}}<br>発生個数: %{y}件<extra></extra>`,
+  };
+
+  return Plotly.react('trendChart', [trace], baseLayout({
+    margin: { l: 50, r: rightMargin, t: 10, b: 40 },
+    showlegend: false,
+    // 上段の欠点マップとX軸(時間)の目盛り位置がずれないよう、同じ表示範囲を明示指定する
+    xaxis: {
+      tickformat: TIME_TICKFORMAT, nticks: TIME_NTICKS, range,
+      gridcolor: COLORS.grid, zerolinecolor: COLORS.grid, color: COLORS.muted,
     },
-    yaxis3: {
-      title: '厚み (mm)', overlaying: 'y', side: 'right', anchor: 'free', autoshift: true,
-      range: thicknessAxisRange || undefined,
-      showgrid: false, zeroline: false, color: COLORS.thickness,
-    },
+    yaxis: { title: '発生個数 (件/時間)', gridcolor: COLORS.grid, color: COLORS.muted },
   }), { responsive: true, displayModeBar: false });
 }
 
@@ -362,7 +490,7 @@ function applyPeriodSliderZoom() {
   const maxInput = el('periodSliderMax');
   const lo = Math.min(Number(minInput.value), Number(maxInput.value));
   const hi = Math.max(Number(minInput.value), Number(maxInput.value));
-  const range = [sliderStepToDate(lo).toISOString(), sliderStepToDate(hi).toISOString()];
+  const range = [toLocalISOString(sliderStepToDate(lo)), toLocalISOString(sliderStepToDate(hi))];
   Plotly.relayout('defectMap', { 'xaxis.range': range });
   Plotly.relayout('trendChart', { 'xaxis.range': range });
 }
@@ -402,9 +530,15 @@ async function applyFilter(recalcAxisRange = true) {
     showError('開始日時と終了日時を指定してください');
     return;
   }
-  const start = new Date(startLocal).toISOString();
-  const end = new Date(endLocal).toISOString();
+  // PI側のTimeStamp列はタイムゾーン情報のないJST(ローカル)の生の数値として保存されているため、
+  // ここでUTCに変換して送ってしまうと、バックエンドのSQLクエリが実際には9時間早い範囲を
+  // 問い合わせることになる(2026-07-22判明。datetime-localの値は元々タイムゾーン情報を
+  // 持たないローカル時刻の文字列なので、変換せずそのまま送る)
+  const start = startLocal;
+  const end = endLocal;
   const types = getSelectedTypes();
+  const showLobb = isReferenceMapElementSelected('LOBB');
+  const showDevitrification = isReferenceMapElementSelected('失透');
 
   const btn = el('applyFilter');
   btn.disabled = true;
@@ -413,21 +547,56 @@ async function applyFilter(recalcAxisRange = true) {
     const paramsDefects = new URLSearchParams({ start, end });
     types.forEach((t) => paramsDefects.append('type', t));
     const paramsProduct = new URLSearchParams({ start, end });
-    const paramsCst = new URLSearchParams({ start, end });
-    const paramsThickness = new URLSearchParams({ start, end });
 
-    const [
-      { data: defects }, { data: productPos }, { data: cstRotation }, { data: thickness },
-    ] = await Promise.all([
+    // LOBB発生個数トレンド表示中は、既存トレンドの重ね描画系列(CST回転数等)は使わないため取得しない
+    const selectedOverlayKeys = getSelectedOverlaySeriesKeys();
+    const activeSeries = trendMode === 'defects'
+      ? OVERLAY_SERIES.filter((s) => selectedOverlayKeys.includes(s.key))
+      : [];
+
+    const fetches = [
       fetchJSON(`/api/defects?${paramsDefects}`),
       fetchJSON(`/api/product_position?${paramsProduct}`),
-      fetchJSON(`/api/cst_rotation_trend?${paramsCst}`),
-      fetchJSON(`/api/thickness_trend?${paramsThickness}`),
-    ]);
+    ];
+    // LOBB・失透はチェックが外れている場合、取得自体をスキップする
+    if (showLobb) {
+      fetches.push(fetchJSON(`/api/lobb_points?${new URLSearchParams({ start, end })}`));
+    }
+    if (showDevitrification) {
+      fetches.push(fetchJSON(`/api/devitrification_points?${new URLSearchParams({ start, end })}`));
+    }
+    if (trendMode === 'lobb') {
+      fetches.push(fetchJSON(`/api/lobb_hourly_count?${new URLSearchParams({ start, end })}`));
+    }
+    fetches.push(...activeSeries.map((s) => fetchJSON(`${s.endpoint}?${new URLSearchParams({ start, end })}`)));
+
+    const [{ data: defects }, { data: productPos }, ...rest] = await Promise.all(fetches);
+
+    let i = 0;
+    const lobbPoints = showLobb ? rest[i++].data : [];
+    const devitrification = showDevitrification ? rest[i++].data : [];
+    const lobbHourlyCount = trendMode === 'lobb' ? rest[i++].data : [];
+    const overlayResults = rest.slice(i);
+
+    const seriesData = {};
+    activeSeries.forEach((s, idx) => { seriesData[s.key] = overlayResults[idx].data; });
 
     const range = [start, end];
-    renderDefectMap(defects, productPos, types, range);
-    renderTrend(defects, types, range, cstRotation, thickness, recalcAxisRange);
+    const rightMargin = computeRightMargin(activeSeries.length);
+    // トレンド側の右軸(CST回転数・厚み・絶対真空圧)はPlotlyのautoshiftで自動配置されるため、
+    // 指定したmargin.rの通りに描画されるとは限らない。先にトレンドを描画し、実際に確定した
+    // 余白(_fullLayout.margin)を読み取ってスナップマップ側にそのまま適用することで、
+    // 2つの独立したチャート間でもプロット領域の幅を厳密に一致させ、X軸(時刻)の
+    // 縦方向のズレを防ぐ
+    if (trendMode === 'lobb') {
+      await renderLobbTrend(lobbHourlyCount, range, rightMargin);
+    } else {
+      await renderTrend(defects, types, range, activeSeries, seriesData, recalcAxisRange, rightMargin);
+    }
+    const resolvedMargin = el('trendChart')._fullLayout.margin;
+    renderDefectMap(
+      defects, productPos, devitrification, lobbPoints, types, range, resolvedMargin, showLobb, showDevitrification,
+    );
     resetPeriodSlider(new Date(start).getTime(), new Date(end).getTime());
 
     el('lastUpdated').textContent = `最終更新 ${new Date().toLocaleTimeString('ja-JP')}`;
@@ -476,14 +645,42 @@ function setupQuickRange() {
   });
 }
 
+const TREND_SUBTITLES = {
+  defects: '1時間ごとの発生分数 / 左パネルで選択した要素を重ね描画',
+  lobb: '1時間ごとのLOBB検知回数',
+};
+
+function updateTrendTabsUI() {
+  el('trendTabDefects').classList.toggle('active', trendMode === 'defects');
+  el('trendTabLobb').classList.toggle('active', trendMode === 'lobb');
+  el('trendSubtitle').textContent = TREND_SUBTITLES[trendMode];
+}
+
+function setupTrendTabs() {
+  el('trendTabDefects').addEventListener('click', () => {
+    if (trendMode === 'defects') return;
+    trendMode = 'defects';
+    updateTrendTabsUI();
+    applyFilter(true);
+  });
+  el('trendTabLobb').addEventListener('click', () => {
+    if (trendMode === 'lobb') return;
+    trendMode = 'lobb';
+    updateTrendTabsUI();
+    applyFilter(true);
+  });
+}
+
 async function init() {
   setDefaultRange(24 * 3); // 初期表示は現在時刻から3日前まで
   await loadDefectTypes();
+  renderOverlaySeriesCheckboxes();
   el('applyFilter').addEventListener('click', () => applyFilter(true));
   setupLiveToggle();
   setupQuickRange();
   setupPeriodSlider();
   setupTypeSelectButtons();
+  setupTrendTabs();
   await applyFilter();
   // リアルタイム更新はデフォルトON(index.htmlのliveToggleにchecked指定)。
   // HTMLのchecked属性だけではchangeイベントが発火しないため、ここで明示的に開始する

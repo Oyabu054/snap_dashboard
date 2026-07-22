@@ -113,17 +113,66 @@ def api_product_position():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/lobb_points")
+def api_lobb_points():
+    """LOBB位置(点として表示)。常時表示用、フィルター非依存。"""
+    try:
+        start, end = _parse_range()
+        df = pi_client.get_lobb_points(start, end)
+        data = [
+            {"timestamp": row.timestamp.isoformat(), "position": float(row.position)}
+            for row in df.itertuples()
+        ]
+        return jsonify({"data": data})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/lobb_hourly_count")
+def api_lobb_hourly_count():
+    """LOBB発生個数トレンド(1時間ごとの検知回数)。時間帯別トレンドの代替表示用。"""
+    try:
+        start, end = _parse_range()
+        df = pi_client.get_lobb_hourly_count(start, end)
+        data = [
+            {"hour": row.hour.isoformat(), "count": int(row.count)}
+            for row in df.itertuples()
+        ]
+        return jsonify({"data": data})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/devitrification_points")
+def api_devitrification_points():
+    """失透位置(L側/R側、点として表示)。常時表示用、フィルター非依存。"""
+    try:
+        start, end = _parse_range()
+        df = pi_client.get_devitrification_points(start, end)
+        data = [
+            {"timestamp": row.timestamp.isoformat(), "position": float(row.position)}
+            for row in df.itertuples()
+        ]
+        return jsonify({"data": data})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+def _trend_series_response(df):
+    """timestamp/value形式のDataFrameをトレンド系列APIの共通レスポンス形式にする。"""
+    data = [
+        {"timestamp": row.timestamp.isoformat(), "value": float(row.value)}
+        for row in df.itertuples()
+    ]
+    return jsonify({"data": data})
+
+
 @app.route("/api/cst_rotation_trend")
 def api_cst_rotation_trend():
     """CST回転数(rpm、10分平均)。時間帯別トレンドグラフに重ねて表示する。"""
     try:
         start, end = _parse_range()
-        df = pi_client.get_cst_rotation_trend(start, end)
-        data = [
-            {"timestamp": row.timestamp.isoformat(), "value": float(row.value)}
-            for row in df.itertuples()
-        ]
-        return jsonify({"data": data})
+        return _trend_series_response(pi_client.get_cst_rotation_trend(start, end))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -133,12 +182,17 @@ def api_thickness_trend():
     """厚み(mm、生データ)。時間帯別トレンドグラフに重ねて表示する。"""
     try:
         start, end = _parse_range()
-        df = pi_client.get_thickness_trend(start, end)
-        data = [
-            {"timestamp": row.timestamp.isoformat(), "value": float(row.value)}
-            for row in df.itertuples()
-        ]
-        return jsonify({"data": data})
+        return _trend_series_response(pi_client.get_thickness_trend(start, end))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/vacuum_pressure_trend")
+def api_vacuum_pressure_trend():
+    """絶対真空圧(mmHg、10分平均)。時間帯別トレンドグラフに重ねて表示する。"""
+    try:
+        start, end = _parse_range()
+        return _trend_series_response(pi_client.get_vacuum_pressure_trend(start, end))
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -174,4 +228,6 @@ if __name__ == "__main__":
     threading.Timer(1.0, _open_browser).start()
     # debug=Trueのリローダーは自身のプロセスを再起動するため、ブラウザが二重に開いてしまう。
     # exe配布を前提に無効化する(開発時にコード変更を反映したい場合は手動でプロセスを再起動すること)
-    app.run(host=config.FLASK_HOST, port=config.FLASK_PORT, debug=False)
+    # threaded=True: 1回のapplyFilter()操作で最大8並列のAPIリクエストが飛ぶため、
+    # デフォルト(シングルスレッド)のままだとサーバー側で直列処理されて遅くなる(2026-07-22追加)
+    app.run(host=config.FLASK_HOST, port=config.FLASK_PORT, debug=False, threaded=True)
