@@ -315,9 +315,30 @@ body {
 /* トレンドの高さを元の2/3に圧縮し、浮いた分をすべてマップに割り当てる
    (合計flex値は元の1:1.1(=2.1)のまま、トレンド側の取り分だけ2/3に): 1.1*(2/3)≒0.733、
    マップ側はその差分(1.1-0.733)を元の1に加算した1.367 */
-.chart-block--map { flex: 1.367; }
+.chart-block--map { flex: 1.367; position: relative; }
 .chart-block--trend { flex: 0.733; }
 .chart { flex: 1; width: 100%; min-height: 0; }
+
+/* マップ右上に表示中の欠点種類・LOBB・失透の色見本を注釈として重ねる。
+   pointer-events:noneでドラッグズームなどマップ本体の操作を妨げないようにする */
+.map-legend {
+  position: absolute;
+  top: 24px;
+  right: 28px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  pointer-events: none;
+  font-size: 11px;
+  color: var(--text);
+  max-width: 45%;
+}
+.map-legend__item { display: flex; align-items: center; gap: 6px; }
 
 .chart-block__header {
   display: flex;

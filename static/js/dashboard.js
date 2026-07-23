@@ -12,19 +12,36 @@ const COLORS = {
   critical: '#b91c1c',
 };
 
-// 欠点種類ごとの識別色(固定順・カラーユニバーサルデザイン検証済み)
-const PALETTE = ['#2a78d6', '#008300', '#e87ba4', '#eda100', '#1baf7a', '#eb6834', '#4a3aa7', '#e34948'];
-
-// LOBB位置(線)・失透(点)の色。既存パレットとの衝突なしをdataviz skillで検証済み
-const LOBB_COLOR = '#1e3a8a';
-const DEVITRIFICATION_COLOR = '#65a30d';
-
-// スナップ・欠点種類リスト(#defectTypeList)のうち、PIの実際の欠点種類ではなく
-// マップの表示/非表示だけを切り替える参照要素(LOBB位置・失透)のラベル
-const REFERENCE_MAP_ELEMENTS = [
-  { label: 'LOBB', color: LOBB_COLOR },
-  { label: '失透', color: DEVITRIFICATION_COLOR },
+// 欠点種類・参照要素(LOBB・失透)の表示順と識別色(2026-07-23改訂、同日中に再調整)。
+// 名前をキーにした固定テーブルにすることで、PIが返す欠点種類の並び順が変わっても
+// 同じ種類は常に同じ色になる(「色は種類に従う、出現順に従わない」というdataviz skillの
+// 原則に合わせた)。色はdataviz skillのvalidate_palette.js(--pairs all)で検証済み:
+// 当初ドリップ/Ｒ／Ｋ/LOBBが青系・ドロス/疵/失透が緑系で類似していた問題を、
+// LOBBを既存7色から最も離れた濃い紅色に差し替えて解消。その後ユーザー指定
+// (リームはピンク、失透は緑系にしたい)に合わせて7色の割り当てを組み替え、
+// ドロス(アクア)↔失透(緑)はCVD ΔE15.2・normal-vision ΔE15.6でともに基準(8.0/15.0)を
+// クリアすることを確認済み(組み替え前の3色クラスターより改善)。既存7色パレット同士の
+// 残存する弱いペア(緑↔橙、橙↔マゼンタ)は8色パレットが元々内包する既知のトレードオフで
+// 今回のユーザー指摘の対象外のため据え置き。詳細はCLAUDE.mdの「配色の見直し」参照。
+// kind:'reference'はPIの欠点種類ではなく、マップの表示/非表示だけを切り替える
+// 参照要素であることを示す
+const DEFECT_LEGEND_ORDER = [
+  { label: 'リーム', color: '#e87ba4' },
+  { label: 'ドリップ', color: '#eb6834' },
+  { label: 'ドロス', color: '#1baf7a' },
+  { label: 'LOBB', color: '#910058', kind: 'reference' },
+  { label: '失透', color: '#008300', kind: 'reference' },
+  { label: '汚れ', color: '#eda100' },
+  { label: '疵', color: '#2a78d6' },
+  { label: '砂利線', color: '#00beff' },
+  { label: 'Ｒ／Ｋ', color: '#4a3aa7' },
 ];
+
+// DEFECT_LEGEND_ORDERに未登録の欠点種類(PI側で新種が追加された場合)向けのフォールバック色
+const FALLBACK_PALETTE = ['#e34948', '#a16207', '#0891b2', '#65a30d'];
+
+const LOBB_COLOR = DEFECT_LEGEND_ORDER.find((e) => e.label === 'LOBB').color;
+const DEVITRIFICATION_COLOR = DEFECT_LEGEND_ORDER.find((e) => e.label === '失透').color;
 
 // X軸(日時)の表示フォーマット・目盛り密度(共通)
 const TIME_TICKFORMAT = '%-m/%-d %H:%M';
@@ -104,6 +121,28 @@ function updateTrendLegend(activeSeries) {
   `).join('');
 }
 
+// マップ右上に、現在表示中(チェック中)の欠点種類・LOBB・失透の色見本を注釈として表示する
+// (ユーザー指示、2026-07-23)。DEFECT_LEGEND_ORDERの固定順で表示し、未登録の種類が
+// あれば末尾に追加する(renderDefectTypeCheckboxesのフォールバックと同じ考え方)
+function updateMapLegend(types, showLobb, showDevitrification) {
+  const activeLabels = new Set(types);
+  if (showLobb) activeLabels.add('LOBB');
+  if (showDevitrification) activeLabels.add('失透');
+
+  const known = DEFECT_LEGEND_ORDER.filter((e) => activeLabels.has(e.label));
+  const knownLabels = new Set(known.map((e) => e.label));
+  const colors = typeColorMap();
+  const extra = types
+    .filter((t) => !knownLabels.has(t))
+    .map((t) => ({ label: t, color: colors[t] || COLORS.accent }));
+
+  el('mapLegend').innerHTML = [...known, ...extra].map((it) => `
+    <span class="map-legend__item">
+      <span class="color-swatch" style="background:${it.color}"></span>${it.label}
+    </span>
+  `).join('');
+}
+
 function renderOverlaySeriesCheckboxes() {
   const container = el('overlaySeriesList');
   container.innerHTML = OVERLAY_SERIES.map((s) => `
@@ -173,33 +212,51 @@ async function fetchJSON(url) {
   return data;
 }
 
-function referenceMapElementCheckboxesHTML() {
+function checkboxHTML(label, color, isReference) {
   // LOBB位置・失透: PIの欠点種類ではなく、マップの表示/非表示だけを切り替える参照要素。
   // data-kind="reference" で実際の欠点種類と区別する
-  return REFERENCE_MAP_ELEMENTS.map(({ label, color }) => `
+  const kindAttr = isReference ? ' data-kind="reference"' : '';
+  return `
     <label>
-      <input type="checkbox" value="${label}" checked data-color="${color}" data-kind="reference">
+      <input type="checkbox" value="${label}" checked data-color="${color}"${kindAttr}>
       <span class="color-swatch" style="background:${color}"></span>
       ${label}
     </label>
-  `).join('');
+  `;
+}
+
+// referenceMapElementsOnlyHTML(): 欠点種類の取得に失敗した場合でも、
+// LOBB・失透のチェックボックスだけは表示するためのフォールバック
+function referenceMapElementsOnlyHTML() {
+  return DEFECT_LEGEND_ORDER.filter((e) => e.kind === 'reference')
+    .map((e) => checkboxHTML(e.label, e.color, true)).join('');
+}
+
+// フィルターパネルのチェックボックス一覧を、DEFECT_LEGEND_ORDERの固定順で描画する。
+// (1)LOBB・失透は常に表示、(2)実際の欠点種類はAPIが返したものだけを固定順で表示、
+// (3)DEFECT_LEGEND_ORDERに未登録の新種があればFALLBACK_PALETTEで色を割り当て末尾に追加
+function renderDefectTypeCheckboxes(defectTypes) {
+  const present = new Set(defectTypes);
+  const known = DEFECT_LEGEND_ORDER
+    .filter((e) => e.kind === 'reference' || present.has(e.label))
+    .map((e) => checkboxHTML(e.label, e.color, e.kind === 'reference'));
+
+  const knownLabels = new Set(DEFECT_LEGEND_ORDER.map((e) => e.label));
+  const extra = defectTypes
+    .filter((t) => !knownLabels.has(t))
+    .map((t, i) => checkboxHTML(t, FALLBACK_PALETTE[i % FALLBACK_PALETTE.length], false));
+
+  return known.join('') + extra.join('');
 }
 
 async function loadDefectTypes() {
   const container = el('defectTypeList');
   try {
     const { defect_types } = await fetchJSON('/api/defect_types');
-    const defectTypeHTML = defect_types.map((t, i) => `
-      <label>
-        <input type="checkbox" value="${t}" checked data-color="${PALETTE[i % PALETTE.length]}">
-        <span class="color-swatch" style="background:${PALETTE[i % PALETTE.length]}"></span>
-        ${t}
-      </label>
-    `).join('');
-    container.innerHTML = defectTypeHTML + referenceMapElementCheckboxesHTML();
+    container.innerHTML = renderDefectTypeCheckboxes(defect_types);
   } catch (e) {
     // 欠点種類の取得に失敗しても、LOBB位置・失透のチェックボックスは表示する
-    container.innerHTML = referenceMapElementCheckboxesHTML();
+    container.innerHTML = referenceMapElementsOnlyHTML();
     showError(e.message);
   }
 }
@@ -684,6 +741,7 @@ async function applyFilter(recalcAxisRange = true) {
     const tickConfig = computeTimeAxisTicks(start, end);
     const rightMargin = computeRightMargin(activeSeries.length);
     updateTrendLegend(activeSeries);
+    updateMapLegend(types, showLobb, showDevitrification);
     // トレンド側の右軸(CST回転数・厚み・絶対真空圧)はPlotlyのautoshiftで自動配置されるため、
     // 指定したmargin.rの通りに描画されるとは限らない。先にトレンドを描画し、実際に確定した
     // 余白(_fullLayout.margin)を読み取ってスナップマップ側にそのまま適用することで、
