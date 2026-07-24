@@ -769,12 +769,18 @@ async function applyFilter(recalcAxisRange = true) {
 }
 
 // リアルタイム更新のポーリング間隔
-const LIVE_UPDATE_INTERVAL_MS = 5 * 60 * 1000; // 5分
+const LIVE_UPDATE_INTERVAL_MS = 2 * 60 * 1000; // 2分
 
 function startLiveUpdates() {
   if (liveTimer) return;
   liveTimer = setInterval(() => {
-    el('endInput').value = toLocalInputValue(new Date());
+    // 終了日時だけを現在時刻に進めると表示期間がどんどん伸びてしまうため、
+    // 現在設定されている表示期間の長さ(durationMs)を保ったまま、
+    // 開始日時も同じだけ前進させてスライドウィンドウにする
+    const durationMs = new Date(el('endInput').value).getTime() - new Date(el('startInput').value).getTime();
+    const now = new Date();
+    el('endInput').value = toLocalInputValue(now);
+    el('startInput').value = toLocalInputValue(new Date(now.getTime() - durationMs));
     // リアルタイム更新中はデータのみ更新し、CST回転数・厚みの軸レンジは
     // 直前の「適用」操作時点の値のまま固定する(ユーザー指示)
     applyFilter(false);
